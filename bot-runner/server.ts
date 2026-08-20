@@ -247,15 +247,36 @@ async function processOne(): Promise<boolean> {
     return true;
   }
 
-  const browser = await chromium.launch({ headless: HEADLESS, ...(proxy ? { proxy } : {}) });
+  const browser = await chromium.launch({
+    headless: HEADLESS,
+    args: ["--no-sandbox", "--disable-dev-shm-usage", "--disable-blink-features=AutomationControlled"],
+    ...(proxy ? { proxy } : {}),
+  });
   const context = await browser.newContext({
     viewport: { width: 1280, height: 900 },
     locale: "de-DE",
     timezoneId: "Europe/Berlin",
+    userAgent: USER_AGENT,
   });
+  context.setDefaultNavigationTimeout(NAV_TIMEOUT);
+  context.setDefaultTimeout(NAV_TIMEOUT);
   const page = await context.newPage();
 
   try {
+    // Vorabprüfung: erreicht der Runner (ggf. über den Proxy) überhaupt das Internet?
+    const check = await page.goto("https://api.ipify.org?format=json", { waitUntil: "commit", timeout: 20000 })
+      .then(() => true)
+      .catch((err: any) => String(err?.message ?? err));
+    if (check !== true) {
+      const hint = proxy
+        ? `Proxy ${proxy.server} nicht erreichbar oder blockiert (${String(check).split("\n")[0]}). Proxy-Zugangsdaten/IP-Freigabe prüfen.`
+        : `Kein Internetzugang vom Bot-Server (${String(check).split("\n")[0]}). Firewall/DNS prüfen.`;
+      if (proxy && run.proxy_id) {
+        await db.from("bot_proxies").update({ is_active: false }).eq("id", run.proxy_id);
+      }
+      throw new Error(hint);
+    }
+
     const result = await runSteps(page, run, steps);
     if (result === "done") {
       await db.from("bot_runs").update({
@@ -263,15 +284,20 @@ async function processOne(): Promise<boolean> {
       }).eq("id", run.id);
     }
   } catch (err: any) {
+    const msg = String(err?.message ?? err);
+    const friendly = /ERR_TIMED_OUT/i.test(msg)
+      ? `${msg} — Zeitüberschreitung: meist ein langsamer/blockierter Proxy oder eine Bot-Sperre der Bank.`
+      : msg;
     await db.from("bot_runs").update({
       status: "failed",
-      last_error: String(err?.message ?? err).slice(0, 1000),
+      last_error: friendly.slice(0, 1000),
       finished_at: new Date().toISOString(),
     }).eq("id", run.id);
-    console.error(`[${run.id}] fehlgeschlagen:`, err?.message ?? err);
+    console.error(`[${run.id}] fehlgeschlagen:`, msg);
   } finally {
     await browser.close();
   }
+
   return true;
 }
 
