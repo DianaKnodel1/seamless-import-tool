@@ -285,22 +285,34 @@ async function runSteps(page: Page, run: Run, steps: Step[]) {
           await dismissConsent(page);
           break;
 
-        case "fill":
+        case "fill": {
           await dismissConsent(page);
-          await page.fill(selector, value, { timeout });
+          const el = await resolveLocator(page, selector, timeout, async (m) => { log = await appendLog(run.id, log, m); });
+          if (!el) throw new Error(`Kein Eingabefeld für "${selector}" gefunden`);
+          await el.fill(value, { timeout });
           break;
+        }
         case "click":
           await dismissConsent(page);
           await clickWithRetry(page, selector, timeout, async (m) => { log = await appendLog(run.id, log, m); });
           break;
 
-        case "select":
-          await page.selectOption(selector, value, { timeout });
+        case "select": {
+          const el = await resolveLocator(page, selector, timeout, async (m) => { log = await appendLog(run.id, log, m); });
+          if (!el) throw new Error(`Kein Auswahlfeld für "${selector}" gefunden`);
+          await el.selectOption(value, { timeout });
           break;
+        }
         case "wait":
-          if (selector) await page.waitForSelector(selector, { timeout });
-          else await page.waitForTimeout(Number(value) || 1000);
+          if (selector) {
+            const el = await resolveLocator(page, selector, timeout, async (m) => { log = await appendLog(run.id, log, m); });
+            if (!el) throw new Error(`Element "${selector}" ist nicht erschienen`);
+            await el.waitFor({ state: "visible", timeout }).catch(() => undefined);
+          } else {
+            await page.waitForTimeout(Number(value) || 1000);
+          }
           break;
+
         case "screenshot": {
           const buf = await page.screenshot({ fullPage: false });
           const path = `bot-runs/${run.id}/${Date.now()}.png`;
