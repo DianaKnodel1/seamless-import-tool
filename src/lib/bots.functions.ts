@@ -61,7 +61,27 @@ export interface BotRunRow {
   finished_at: string | null;
   created_at: string;
   proxy_id?: string | null;
+  debug?: BotRunDebug | null;
 }
+
+/** Diagnosedaten, die der Bot-Runner bei einem fehlgeschlagenen Schritt speichert. */
+export interface BotRunDebug {
+  step?: number;
+  action?: string;
+  selector?: string;
+  selector_alternatives?: string[];
+  url?: string;
+  title?: string;
+  error?: string;
+  html_path?: string | null;
+  trace_path?: string | null;
+  candidates?: {
+    tag?: string; type?: string; id?: string; name?: string;
+    testid?: string; aria?: string; text?: string; selector?: string;
+  }[];
+  at?: string;
+}
+
 
 export const listBotProfiles = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
@@ -139,6 +159,20 @@ export const listBotRuns = createServerFn({ method: "GET" })
     if (error) throw new Error(error.message);
     return { rows: (data ?? []) as BotRunRow[] };
   });
+
+/** Signierter Link auf ein Diagnose-Artefakt (Screenshot, HTML, Trace) eines Laufs. */
+export const getBotArtifactUrl = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((i: unknown) => z.object({ path: z.string().min(1).max(300) }).parse(i))
+  .handler(async ({ data, context }): Promise<{ url: string | null }> => {
+    await requireAdmin(context);
+    if (!data.path.startsWith("bot-runs/")) throw new Error("Ungültiger Pfad");
+    const db = context.supabase as any;
+    const { data: signed } = await db.storage.from("documents").createSignedUrl(data.path, 600);
+    return { url: signed?.signedUrl ?? null };
+  });
+
+
 
 const EnqueueInput = z.object({
   profile_id: z.string().uuid(),

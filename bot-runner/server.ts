@@ -4,8 +4,11 @@
 //   npm install && npx playwright install chromium
 //   SUPABASE_URL=… SERVICE_ROLE_KEY=… npm start
 
+import { readFile, unlink } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { BrowserType, Chromium, Page } from "playwright";
+import type { BrowserContext, BrowserType, Chromium, Page } from "playwright";
 
 console.log(`[${new Date().toISOString()}] Runner-Bootstrap geladen`);
 
@@ -30,6 +33,28 @@ if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
 
 let db: SupabaseClient;
 let chromium: BrowserType<Chromium>;
+// Aktiver Browser-Kontext mit laufender Aufzeichnung (für Fehler-Traces).
+let activeContext: BrowserContext | null = null;
+const TRACE_ENABLED = process.env.TRACE !== "false";
+
+/** Beendet die Aufzeichnung und legt das Trace-Zip in den Storage. */
+async function stopTrace(runId: string, tag: string): Promise<string | null> {
+  const ctx = activeContext;
+  activeContext = null;
+  if (!ctx || !TRACE_ENABLED) return null;
+  const file = join(tmpdir(), `trace-${runId}-${Date.now()}.zip`);
+  try {
+    await ctx.tracing.stop({ path: file });
+    const buf = await readFile(file);
+    const path = `bot-runs/${runId}/${tag}-trace-${Date.now()}.zip`;
+    await db.storage.from("documents").upload(path, buf, { contentType: "application/zip" });
+    return path;
+  } catch {
+    return null;
+  } finally {
+    await unlink(file).catch(() => undefined);
+  }
+}
 
 interface Step {
   action: "goto" | "fill" | "click" | "select" | "wait" | "screenshot" | "advance" | "extract" | "handoff";
@@ -114,8 +139,68 @@ async function dismissConsent(page: Page) {
 }
 
 /**
- * Robuster Klick: Consent wegklicken, scrollen, Fallback auf Text-/Rollen-Suche
- * und zuletzt JavaScript-Klick.
+ * Zerlegt eine Selektor-Angabe in Alternativen.
+ * Erlaubt: JSON-Array (["#a","text=Weiter"]) oder "a || b || c".
+ */
+function splitSelectors(raw: string): string[] {
+  const trimmed = raw.trim();
+  if (trimmed.startsWith("[")) {
+    try {
+      const arr = JSON.parse(trimmed);
+      if (Array.isArray(arr)) return arr.map(String).map((s) => s.trim()).filter(Boolean);
+    } catch { /* kein gültiges JSON – wie normalen Selektor behandeln */ }
+  }
+  return trimmed.split("||").map((s) => s.trim()).filter(Boolean);
+}
+
+/** Baut einen Locator: CSS/XPath, text=…, role=button:Name oder Klartext-Fallback. */
+function toLocator(page: Page, sel: string) {
+  const role = sel.match(/^role=([a-z]+)[:=](.+)$/i);
+  if (role?.[1] && role[2]) {
+    return page.getByRole(role[1] as any, { name: new RegExp(escapeRe(role[2]), "i") }).first();
+  }
+  const text = sel.match(/^text=["']?(.+?)["']?$/i);
+  if (text?.[1]) {
+    return page.getByText(new RegExp(escapeRe(text[1]), "i")).first();
+  }
+  return page.locator(sel).first();
+}
+
+function escapeRe(s: string) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Sucht den ersten Selektor aus der Liste, der auf der Seite existiert.
+ * Fällt am Ende auf eine Text-/Rollen-Suche zurück.
+ */
+async function resolveLocator(page: Page, raw: string, timeout: number, onLog?: (m: string) => Promise<void>) {
+  const list = splitSelectors(raw);
+  const per = Math.max(1500, Math.round(timeout / Math.max(list.length, 1)));
+  for (const sel of list) {
+    const loc = toLocator(page, sel);
+    const ok = await loc.waitFor({ state: "attached", timeout: per }).then(() => true).catch(() => false);
+    if (ok) {
+      if (onLog && sel !== list[0]) await onLog(`Alternativ-Selektor verwendet: "${sel}"`);
+      return loc;
+    }
+  }
+  // Fallback: Text aus dem Selektor als Button-/Link-Name interpretieren
+  const hint = list[0]?.match(/text=["']?([^"'\]]+)/i)?.[1];
+  if (hint) {
+    const byRole = page.getByRole("button", { name: new RegExp(escapeRe(hint), "i") })
+      .or(page.getByRole("link", { name: new RegExp(escapeRe(hint), "i") })).first();
+    if (await byRole.count().catch(() => 0)) {
+      if (onLog) await onLog(`Fallback über Beschriftung "${hint}" verwendet`);
+      return byRole;
+    }
+  }
+  return null;
+}
+
+/**
+ * Robuster Klick: Consent wegklicken, scrollen, Alternativ-Selektoren,
+ * Text-/Rollen-Suche und zuletzt JavaScript-Klick.
  */
 async function clickWithRetry(page: Page, selector: string, timeout: number, onLog: (m: string) => Promise<void>) {
   const attempts = 3;
@@ -123,8 +208,8 @@ async function clickWithRetry(page: Page, selector: string, timeout: number, onL
   for (let attempt = 1; attempt <= attempts; attempt++) {
     try {
       if (attempt > 1) await dismissConsent(page);
-      const el = page.locator(selector).first();
-      await el.waitFor({ state: "attached", timeout: Math.round(timeout / attempts) });
+      const el = await resolveLocator(page, selector, Math.round(timeout / attempts), onLog);
+      if (!el) throw new Error(`Kein Element für "${selector}" gefunden`);
       await el.scrollIntoViewIfNeeded({ timeout: 5000 }).catch(() => undefined);
       await el.click({ timeout: Math.round(timeout / attempts) });
       return;
@@ -133,24 +218,76 @@ async function clickWithRetry(page: Page, selector: string, timeout: number, onL
       await onLog(`Klick Versuch ${attempt}/${attempts} auf "${selector}" fehlgeschlagen – neuer Versuch`);
     }
   }
-  // Fallback 1: Text-/Rollen-Suche, falls der Selektor Text enthält
-  const textMatch = selector.match(/text=["']?([^"'\]]+)/i);
-  if (textMatch?.[1]) {
-    const byRole = page.getByRole("button", { name: new RegExp(textMatch[1], "i") }).first();
-    if (await byRole.isVisible().catch(() => false)) {
-      await byRole.click({ timeout }); return;
-    }
+  // Fallback: JavaScript-Klick (überdeckende Layer umgehen)
+  for (const sel of splitSelectors(selector)) {
+    const done = await page.evaluate((s) => {
+      const node = document.querySelector(s) as HTMLElement | null;
+      if (!node) return false;
+      node.click();
+      return true;
+    }, sel).catch(() => false);
+    if (done) { await onLog(`Klick auf "${sel}" per JavaScript ausgeführt`); return; }
   }
-  // Fallback 2: JavaScript-Klick (überdeckende Layer umgehen)
-  const done = await page.evaluate((sel) => {
-    const node = document.querySelector(sel) as HTMLElement | null;
-    if (!node) return false;
-    node.click();
-    return true;
-  }, selector).catch(() => false);
-  if (done) { await onLog(`Klick auf "${selector}" per JavaScript ausgeführt`); return; }
   throw lastErr;
 }
+
+/** Liest sichtbare, interaktive Elemente der Seite als Selektor-Vorschläge aus. */
+async function collectCandidates(page: Page) {
+  return await page.evaluate(() => {
+    const out: Record<string, string>[] = [];
+    const nodes = document.querySelectorAll<HTMLElement>(
+      "button, a[href], input, select, textarea, [role=button], [role=link], [onclick]",
+    );
+    for (const el of Array.from(nodes).slice(0, 400)) {
+      const rect = el.getBoundingClientRect();
+      const visible = rect.width > 0 && rect.height > 0 && getComputedStyle(el).visibility !== "hidden";
+      if (!visible) continue;
+      const anyEl = el as any;
+      out.push({
+        tag: el.tagName.toLowerCase(),
+        type: anyEl.type ?? "",
+        id: el.id ?? "",
+        name: anyEl.name ?? "",
+        testid: el.getAttribute("data-testid") ?? "",
+        aria: el.getAttribute("aria-label") ?? "",
+        text: (el.innerText || anyEl.value || el.getAttribute("placeholder") || "").trim().slice(0, 80),
+        selector: el.id
+          ? `#${el.id}`
+          : anyEl.name
+            ? `${el.tagName.toLowerCase()}[name="${anyEl.name}"]`
+            : el.getAttribute("data-testid")
+              ? `[data-testid="${el.getAttribute("data-testid")}"]`
+              : "",
+      });
+      if (out.length >= 120) break;
+    }
+    return out;
+  }).catch(() => [] as Record<string, string>[]);
+}
+
+/** Speichert Screenshot, HTML und Element-Kandidaten für einen Fehlerfall. */
+async function captureDiagnostics(page: Page, runId: string, tag: string) {
+  const stamp = Date.now();
+  const base = `bot-runs/${runId}/${tag}-${stamp}`;
+  const result: { screenshot_path?: string; html_path?: string; candidates?: Record<string, string>[] } = {};
+  try {
+    const buf = await page.screenshot({ fullPage: false });
+    const path = `${base}.png`;
+    await db.storage.from("documents").upload(path, buf, { contentType: "image/png" });
+    result.screenshot_path = path;
+  } catch { /* Screenshot nicht möglich */ }
+  try {
+    const html = await page.content();
+    const path = `${base}.html`;
+    await db.storage.from("documents").upload(path, new Blob([html], { type: "text/html" }), {
+      contentType: "text/html",
+    });
+    result.html_path = path;
+  } catch { /* HTML nicht lesbar */ }
+  result.candidates = await collectCandidates(page);
+  return result;
+}
+
 
 
 async function runSteps(page: Page, run: Run, steps: Step[]) {
@@ -173,22 +310,34 @@ async function runSteps(page: Page, run: Run, steps: Step[]) {
           await dismissConsent(page);
           break;
 
-        case "fill":
+        case "fill": {
           await dismissConsent(page);
-          await page.fill(selector, value, { timeout });
+          const el = await resolveLocator(page, selector, timeout, async (m) => { log = await appendLog(run.id, log, m); });
+          if (!el) throw new Error(`Kein Eingabefeld für "${selector}" gefunden`);
+          await el.fill(value, { timeout });
           break;
+        }
         case "click":
           await dismissConsent(page);
           await clickWithRetry(page, selector, timeout, async (m) => { log = await appendLog(run.id, log, m); });
           break;
 
-        case "select":
-          await page.selectOption(selector, value, { timeout });
+        case "select": {
+          const el = await resolveLocator(page, selector, timeout, async (m) => { log = await appendLog(run.id, log, m); });
+          if (!el) throw new Error(`Kein Auswahlfeld für "${selector}" gefunden`);
+          await el.selectOption(value, { timeout });
           break;
+        }
         case "wait":
-          if (selector) await page.waitForSelector(selector, { timeout });
-          else await page.waitForTimeout(Number(value) || 1000);
+          if (selector) {
+            const el = await resolveLocator(page, selector, timeout, async (m) => { log = await appendLog(run.id, log, m); });
+            if (!el) throw new Error(`Element "${selector}" ist nicht erschienen`);
+            await el.waitFor({ state: "visible", timeout }).catch(() => undefined);
+          } else {
+            await page.waitForTimeout(Number(value) || 1000);
+          }
           break;
+
         case "screenshot": {
           const buf = await page.screenshot({ fullPage: false });
           const path = `bot-runs/${run.id}/${Date.now()}.png`;
@@ -267,17 +416,25 @@ async function runSteps(page: Page, run: Run, steps: Step[]) {
         continue;
       }
 
-      // Diagnose: Screenshot, URL und Titel festhalten.
-      let shotPath: string | null = null;
-      let pageUrl = "";
-      let pageTitle = "";
-      try {
-        pageUrl = page.url();
-        pageTitle = await page.title().catch(() => "");
-        const buf = await page.screenshot({ fullPage: false });
-        shotPath = `bot-runs/${run.id}/step-error-${i + 1}-${Date.now()}.png`;
-        await db.storage.from("documents").upload(shotPath, buf, { contentType: "image/png" });
-      } catch { shotPath = null; }
+      // Diagnose: Screenshot, HTML, Element-Kandidaten, URL und Titel festhalten.
+      const pageUrl = (() => { try { return page.url(); } catch { return ""; } })();
+      const pageTitle = await page.title().catch(() => "");
+      const diag = await captureDiagnostics(page, run.id, `step-error-${i + 1}`);
+      const tracePath = await stopTrace(run.id, `step-error-${i + 1}`);
+      const debug = {
+        step: i + 1,
+        action: step.action,
+        selector,
+        selector_alternatives: selector ? splitSelectors(selector) : [],
+        url: pageUrl,
+        title: pageTitle,
+        error: String(err?.message ?? err).slice(0, 500),
+        html_path: diag.html_path ?? null,
+        trace_path: tracePath,
+        candidates: (diag.candidates ?? []).slice(0, 80),
+        at: new Date().toISOString(),
+      };
+      await db.from("bot_runs").update({ debug }).eq("id", run.id);
 
       log = await appendLog(
         run.id, log,
@@ -285,18 +442,19 @@ async function runSteps(page: Page, run: Run, steps: Step[]) {
       );
 
       // Element nicht gefunden/klickbar → an den Admin übergeben statt abbrechen.
-      const isElementProblem = /Timeout .* exceeded|waiting for (?:selector|locator)|not (?:visible|attached|enabled)/i.test(String(err?.message ?? ""));
+      const isElementProblem = /Timeout .* exceeded|waiting for (?:selector|locator)|not (?:visible|attached|enabled)|Kein (?:Element|Eingabefeld|Auswahlfeld)|nicht erschienen/i.test(String(err?.message ?? ""));
       if (isElementProblem) {
         await db.from("bot_runs").update({
           status: "waiting_admin",
-          handoff_reason: `Schritt ${i + 1} (${step.label ?? step.action}) konnte nicht ausgeführt werden – Element "${selector}" war nicht erreichbar. Bitte Screenshot prüfen und ggf. den Selektor im Bot-Profil korrigieren.`,
+          handoff_reason: `Schritt ${i + 1} (${step.label ?? step.action}) konnte nicht ausgeführt werden – Element "${selector}" war nicht erreichbar. Bitte Screenshot und Element-Vorschläge prüfen und ggf. den Selektor im Bot-Profil korrigieren.`,
           handoff_url: pageUrl,
-          ...(shotPath ? { screenshot_path: shotPath } : {}),
+          ...(diag.screenshot_path ? { screenshot_path: diag.screenshot_path } : {}),
         }).eq("id", run.id);
         return "handoff" as const;
       }
 
       throw new Error(`Schritt ${i + 1} (${step.action}) fehlgeschlagen: ${err.message}`);
+
     }
   }
 
@@ -361,6 +519,10 @@ async function processOne(): Promise<boolean> {
   });
   context.setDefaultNavigationTimeout(NAV_TIMEOUT);
   context.setDefaultTimeout(NAV_TIMEOUT);
+  if (TRACE_ENABLED) {
+    await context.tracing.start({ screenshots: true, snapshots: true, sources: false }).catch(() => undefined);
+    activeContext = context;
+  }
   const page = await context.newPage();
 
   try {
@@ -389,15 +551,22 @@ async function processOne(): Promise<boolean> {
     const friendly = /ERR_TIMED_OUT/i.test(msg)
       ? `${msg} — Zeitüberschreitung: meist ein langsamer/blockierter Proxy oder eine Bot-Sperre der Bank.`
       : msg;
+    const tracePath = await stopTrace(run.id, "run-error");
     await db.from("bot_runs").update({
       status: "failed",
       last_error: friendly.slice(0, 1000),
       finished_at: new Date().toISOString(),
+      ...(tracePath ? { debug: { error: friendly.slice(0, 500), trace_path: tracePath, at: new Date().toISOString() } } : {}),
     }).eq("id", run.id);
     console.error(`[${run.id}] fehlgeschlagen:`, msg);
   } finally {
+    if (activeContext) {
+      await activeContext.tracing.stop().catch(() => undefined);
+      activeContext = null;
+    }
     await browser.close();
   }
+
 
   return true;
 }

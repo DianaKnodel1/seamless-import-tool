@@ -5,8 +5,9 @@ import { useServerFn } from "@tanstack/react-start";
 import {
   listBotProfiles, saveBotProfile, deleteBotProfile,
   listBotRuns, enqueueBotRun, claimBotRun, setBotRunStatus, listBotProxies,
-  type BotStep, type BotProfileRow,
+  type BotStep, type BotProfileRow, type BotRunRow,
 } from "@/lib/bots.functions";
+import { BotRunDebugDialog } from "@/components/admin/BotRunDebugDialog";
 import { useAdminData } from "@/contexts/AdminDataContext";
 import { getAllEmployees } from "@/lib/employee-utils";
 import { Button } from "@/components/ui/button";
@@ -100,6 +101,7 @@ function AdminBotsPage() {
 
 
   const [editor, setEditor] = useState<typeof EMPTY_PROFILE | null>(null);
+  const [debugRun, setDebugRun] = useState<BotRunRow | null>(null);
   const [startFor, setStartFor] = useState<BotProfileRow | null>(null);
   const [startUser, setStartUser] = useState("");
   const [startEmail, setStartEmail] = useState("");
@@ -368,15 +370,26 @@ function AdminBotsPage() {
                         {r.started_at ? new Date(r.started_at).toLocaleString("de-DE") : "–"}
                       </td>
                       <td className="px-4 py-3">
-                        {!["done", "cancelled"].includes(r.status) && (
-                          <Button
-                            size="sm" variant="ghost" className="h-7 text-xs"
-                            onClick={() => statusM.mutate({ id: r.id, status: "cancelled" })}
-                          >
-                            Abbrechen
-                          </Button>
-                        )}
+                        <div className="flex gap-1">
+                          {(r.debug || r.screenshot_path) && (
+                            <Button
+                              size="sm" variant="ghost" className="h-7 text-xs"
+                              onClick={() => setDebugRun(r)}
+                            >
+                              Diagnose
+                            </Button>
+                          )}
+                          {!["done", "cancelled"].includes(r.status) && (
+                            <Button
+                              size="sm" variant="ghost" className="h-7 text-xs"
+                              onClick={() => statusM.mutate({ id: r.id, status: "cancelled" })}
+                            >
+                              Abbrechen
+                            </Button>
+                          )}
+                        </div>
                       </td>
+
                     </tr>
                   ))}
                 </tbody>
@@ -389,6 +402,10 @@ function AdminBotsPage() {
           <BotProxyPanel />
         </TabsContent>
       </Tabs>
+
+      <BotRunDebugDialog run={debugRun} onClose={() => setDebugRun(null)} />
+
+
 
       {/* Profil-Editor */}
       <Dialog open={!!editor} onOpenChange={(v) => !v && setEditor(null)}>
@@ -432,7 +449,10 @@ function AdminBotsPage() {
                   Aktionen: goto, fill, click, select, wait, screenshot, handoff. Platzhalter wie{" "}
                   <code>{"{{first_name}}"}</code>, <code>{"{{email}}"}</code>, <code>{"{{password}}"}</code>{" "}
                   werden pro Lauf ersetzt. <code>"optional": true</code> überspringt fehlende Elemente.
+                  Mehrere Selektoren als Alternativen mit <code>||</code> trennen (z. B.{" "}
+                  <code>#weiter || text=Weiter || role=button:Weiter</code>) – der erste Treffer wird genommen.
                 </p>
+
               </div>
               <div className="flex items-center gap-2">
                 <Switch checked={editor.is_active} onCheckedChange={(v) => setEditor({ ...editor, is_active: v })} />
