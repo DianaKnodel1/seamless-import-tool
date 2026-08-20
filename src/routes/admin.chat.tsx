@@ -106,6 +106,11 @@ function AdminChatPage() {
   const typingTimeoutRef = useRef<number | null>(null);
   const lastTypingSentRef = useRef(0);
   const bottomRef = useRef<HTMLDivElement>(null);
+  // Verlauf: neueste Seite zuerst, ältere auf Wunsch nachladen.
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+
   // user_id -> team_leader_id (für Antworten im Namen des Teamleiters)
   const leaderMapRef = useRef<Map<string, string | null>>(new Map());
   // Alle Admin-/Staff-Konten (Gegenseite im Chat)
