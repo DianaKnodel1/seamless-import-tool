@@ -343,6 +343,7 @@ async function runSteps(page: Page, run: Run, steps: Step[]) {
           break;
 
         case "fill": {
+          await assertCurrentPageOk(page);
           await dismissConsent(page);
           const el = await resolveLocator(page, selector, timeout, async (m) => { log = await appendLog(run.id, log, m); });
           if (!el) throw new Error(`Kein Eingabefeld für "${selector}" gefunden`);
@@ -350,11 +351,13 @@ async function runSteps(page: Page, run: Run, steps: Step[]) {
           break;
         }
         case "click":
+          await assertCurrentPageOk(page);
           await dismissConsent(page);
           await clickWithRetry(page, selector, timeout, async (m) => { log = await appendLog(run.id, log, m); });
           break;
 
         case "select": {
+          await assertCurrentPageOk(page);
           const el = await resolveLocator(page, selector, timeout, async (m) => { log = await appendLog(run.id, log, m); });
           if (!el) throw new Error(`Kein Auswahlfeld für "${selector}" gefunden`);
           await el.selectOption(value, { timeout });
