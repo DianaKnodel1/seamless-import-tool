@@ -49,6 +49,7 @@ const isUnanswered = (c: Conversation) =>
 
 // Interne KI-/Eskalations-Notizen: clientseitig filtern, damit keine normale
 // Nachricht durch serverseitige Textfilter verloren geht.
+const HISTORY_PAGE_SIZE = 200;
 function isInternalAdminNote(message: string | null | undefined) {
   const m = message ?? "";
   return (
