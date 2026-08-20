@@ -260,23 +260,19 @@ function AdminBotsPage() {
           </div>
           <div className="space-y-2">
             {waiting.map((r) => (
-              <div key={r.id} className="flex items-center justify-between gap-3 text-xs border-t border-border pt-2">
-                <div>
-                  <span className="font-medium">{profileById.get(r.profile_id)?.name ?? "—"}</span>
-                  {r.user_id && <span className="text-muted-foreground"> · {nameByUser.get(r.user_id)}</span>}
-                  <p className="text-muted-foreground mt-0.5">{r.handoff_reason || "Manueller Schritt erforderlich"}</p>
-                </div>
-                <div className="flex gap-1.5 shrink-0">
-                  <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => claimM.mutate(r.id)}>
-                    Übernehmen
-                  </Button>
-                  <Button size="sm" className="h-7 text-xs" onClick={() => statusM.mutate({ id: r.id, status: "done" })}>
-                    Erledigt
-                  </Button>
-                </div>
-              </div>
+              <BotHandoffCard
+                key={r.id}
+                run={r}
+                profileName={profileById.get(r.profile_id)?.name ?? "—"}
+                employeeName={r.user_id ? nameByUser.get(r.user_id) : undefined}
+                claimedByName={r.claimed_by ? nameByUser.get(r.claimed_by) : undefined}
+                onClaim={(release) => claimM.mutate({ id: r.id, release })}
+                onDone={() => statusM.mutate({ id: r.id, status: "done" })}
+                onDiagnose={() => setDebugRun(r)}
+              />
             ))}
           </div>
+
         </div>
       )}
 
