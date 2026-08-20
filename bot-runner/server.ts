@@ -94,16 +94,39 @@ function isNetworkError(msg: string): boolean {
   return /ERR_TIMED_OUT|ERR_CONNECTION|ERR_NETWORK|ERR_PROXY|ERR_TUNNEL|ERR_EMPTY_RESPONSE|ERR_NAME_NOT_RESOLVED|Timeout .* exceeded/i.test(msg);
 }
 
+/** Fehler, der eine sofortige Übergabe an den Admin auslöst (kein Retry sinnvoll). */
+class PageUnavailableError extends Error {}
+
+/** Erkennt Fehler-/404-Seiten anhand von HTTP-Status, Titel und Seitentext. */
+async function assertPageOk(page: Page, status: number | null, url: string) {
+  if (status !== null && status >= 400) {
+    throw new PageUnavailableError(
+      `Die Seite ${url} antwortet mit HTTP ${status}. Bitte die URL im Bot-Profil prüfen/aktualisieren.`,
+    );
+  }
+  const title = await page.title().catch(() => "");
+  const heading = await page.locator("h1").first().innerText({ timeout: 3000 }).catch(() => "");
+  const probe = `${title} ${heading}`;
+  const errorPage = /(^|\W)(404|410)(\W|$)|Seite nicht gefunden|Fehlerseite|Page not found|Not Found|Zugriff verweigert|Access Denied|Forbidden|Service (?:nicht verfügbar|unavailable)|Wartungsarbeiten/i;
+  if (errorPage.test(probe)) {
+    throw new PageUnavailableError(
+      `Die Seite ${url} ist eine Fehlerseite ("${(title || heading).trim()}"). Bitte die URL im Bot-Profil prüfen/aktualisieren.`,
+    );
+  }
+}
+
 /** Öffnet eine Seite mit mehreren Versuchen (Proxys sind oft langsam/instabil). */
 async function gotoWithRetry(page: Page, url: string, timeout: number, onLog: (m: string) => Promise<void>) {
   const attempts = Number(process.env.GOTO_RETRIES ?? 3);
   let lastErr: any;
   for (let attempt = 1; attempt <= attempts; attempt++) {
     try {
-      await page.goto(url, { waitUntil: "commit", timeout });
+      const res = await page.goto(url, { waitUntil: "commit", timeout });
       await page.waitForLoadState("domcontentloaded", { timeout }).catch(() => undefined);
+      await assertPageOk(page, res?.status() ?? null, url);
       return;
     } catch (err: any) {
+      if (err instanceof PageUnavailableError) throw err;
       lastErr = err;
       const msg = String(err?.message ?? err);
       if (attempt >= attempts || !isNetworkError(msg)) throw err;
@@ -113,6 +136,15 @@ async function gotoWithRetry(page: Page, url: string, timeout: number, onLog: (m
   }
   throw lastErr;
 }
+
+/**
+ * Prüft vor Interaktionsschritten, ob die aktuelle Seite eine Fehlerseite ist –
+ * sonst wartet der Bot minutenlang auf Elemente, die es dort nie geben kann.
+ */
+async function assertCurrentPageOk(page: Page) {
+  await assertPageOk(page, null, page.url());
+}
+
 
 /** Klickt gängige Cookie-/Consent-Buttons weg (auch in iFrames). */
 async function dismissConsent(page: Page) {
@@ -311,6 +343,7 @@ async function runSteps(page: Page, run: Run, steps: Step[]) {
           break;
 
         case "fill": {
+          await assertCurrentPageOk(page);
           await dismissConsent(page);
           const el = await resolveLocator(page, selector, timeout, async (m) => { log = await appendLog(run.id, log, m); });
           if (!el) throw new Error(`Kein Eingabefeld für "${selector}" gefunden`);
@@ -318,11 +351,13 @@ async function runSteps(page: Page, run: Run, steps: Step[]) {
           break;
         }
         case "click":
+          await assertCurrentPageOk(page);
           await dismissConsent(page);
           await clickWithRetry(page, selector, timeout, async (m) => { log = await appendLog(run.id, log, m); });
           break;
 
         case "select": {
+          await assertCurrentPageOk(page);
           const el = await resolveLocator(page, selector, timeout, async (m) => { log = await appendLog(run.id, log, m); });
           if (!el) throw new Error(`Kein Auswahlfeld für "${selector}" gefunden`);
           await el.selectOption(value, { timeout });
@@ -411,7 +446,8 @@ async function runSteps(page: Page, run: Run, steps: Step[]) {
       }
       log = await appendLog(run.id, log, `Schritt ${i + 1}/${steps.length} ok: ${step.label ?? step.action}`);
     } catch (err: any) {
-      if (step.optional) {
+      const unavailable = err instanceof PageUnavailableError;
+      if (step.optional && !unavailable) {
         log = await appendLog(run.id, log, `Schritt ${i + 1} übersprungen (optional): ${err.message}`);
         continue;
       }
@@ -441,6 +477,17 @@ async function runSteps(page: Page, run: Run, steps: Step[]) {
         `Schritt ${i + 1} (${step.action}) fehlgeschlagen auf ${pageUrl || "unbekannter Seite"}${pageTitle ? ` ("${pageTitle}")` : ""}: ${err.message}`,
       );
 
+      // Fehlerseite (404 o. Ä.) → sofort mit Klartext übergeben, kein langes Warten auf Elemente.
+      if (unavailable) {
+        await db.from("bot_runs").update({
+          status: "waiting_admin",
+          handoff_reason: `Schritt ${i + 1} (${step.label ?? step.action}): ${err.message}`,
+          handoff_url: pageUrl,
+          ...(diag.screenshot_path ? { screenshot_path: diag.screenshot_path } : {}),
+        }).eq("id", run.id);
+        return "handoff" as const;
+      }
+
       // Element nicht gefunden/klickbar → an den Admin übergeben statt abbrechen.
       const isElementProblem = /Timeout .* exceeded|waiting for (?:selector|locator)|not (?:visible|attached|enabled)|Kein (?:Element|Eingabefeld|Auswahlfeld)|nicht erschienen/i.test(String(err?.message ?? ""));
       if (isElementProblem) {
@@ -452,6 +499,7 @@ async function runSteps(page: Page, run: Run, steps: Step[]) {
         }).eq("id", run.id);
         return "handoff" as const;
       }
+
 
       throw new Error(`Schritt ${i + 1} (${step.action}) fehlgeschlagen: ${err.message}`);
 

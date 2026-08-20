@@ -57,6 +57,7 @@ export interface BotRunRow {
   screenshot_path: string | null;
   last_error: string | null;
   claimed_by: string | null;
+  claimed_at?: string | null;
   started_at: string | null;
   finished_at: string | null;
   created_at: string;
@@ -191,20 +192,24 @@ export const enqueueBotRun = createServerFn({ method: "POST" })
     return createBotRun(context.supabase as any, context.userId, data);
   });
 
-/** Admin übernimmt einen wartenden Lauf (VideoIdent o. Ä.). */
+/** Admin übernimmt einen wartenden Lauf – oder gibt ihn mit `release` wieder frei. */
 export const claimBotRun = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((i: unknown) => z.object({ id: z.string().uuid() }).parse(i))
-  .handler(async ({ data, context }): Promise<{ ok: boolean }> => {
+  .inputValidator((i: unknown) =>
+    z.object({ id: z.string().uuid(), release: z.boolean().optional().default(false) }).parse(i))
+  .handler(async ({ data, context }): Promise<{ ok: boolean; claimed_by: string | null; claimed_at: string | null }> => {
     await requireAdmin(context);
     const db = context.supabase as any;
+    const claimed_by = data.release ? null : context.userId;
+    const claimed_at = data.release ? null : new Date().toISOString();
     const { error } = await db
       .from("bot_runs")
-      .update({ claimed_by: context.userId, claimed_at: new Date().toISOString() })
+      .update({ claimed_by, claimed_at })
       .eq("id", data.id);
     if (error) throw new Error(error.message);
-    return { ok: true };
+    return { ok: true, claimed_by, claimed_at };
   });
+
 
 const SetStatusInput = z.object({
   id: z.string().uuid(),
