@@ -403,6 +403,10 @@ function AdminBotsPage() {
         </TabsContent>
       </Tabs>
 
+      <BotRunDebugDialog run={debugRun} onClose={() => setDebugRun(null)} />
+
+
+
       {/* Profil-Editor */}
       <Dialog open={!!editor} onOpenChange={(v) => !v && setEditor(null)}>
         <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
