@@ -519,6 +519,10 @@ async function processOne(): Promise<boolean> {
   });
   context.setDefaultNavigationTimeout(NAV_TIMEOUT);
   context.setDefaultTimeout(NAV_TIMEOUT);
+  if (TRACE_ENABLED) {
+    await context.tracing.start({ screenshots: true, snapshots: true, sources: false }).catch(() => undefined);
+    activeContext = context;
+  }
   const page = await context.newPage();
 
   try {
@@ -547,15 +551,22 @@ async function processOne(): Promise<boolean> {
     const friendly = /ERR_TIMED_OUT/i.test(msg)
       ? `${msg} — Zeitüberschreitung: meist ein langsamer/blockierter Proxy oder eine Bot-Sperre der Bank.`
       : msg;
+    const tracePath = await stopTrace(run.id, "run-error");
     await db.from("bot_runs").update({
       status: "failed",
       last_error: friendly.slice(0, 1000),
       finished_at: new Date().toISOString(),
+      ...(tracePath ? { debug: { error: friendly.slice(0, 500), trace_path: tracePath, at: new Date().toISOString() } } : {}),
     }).eq("id", run.id);
     console.error(`[${run.id}] fehlgeschlagen:`, msg);
   } finally {
+    if (activeContext) {
+      await activeContext.tracing.stop().catch(() => undefined);
+      activeContext = null;
+    }
     await browser.close();
   }
+
 
   return true;
 }
