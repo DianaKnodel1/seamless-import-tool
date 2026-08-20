@@ -391,17 +391,25 @@ async function runSteps(page: Page, run: Run, steps: Step[]) {
         continue;
       }
 
-      // Diagnose: Screenshot, URL und Titel festhalten.
-      let shotPath: string | null = null;
-      let pageUrl = "";
-      let pageTitle = "";
-      try {
-        pageUrl = page.url();
-        pageTitle = await page.title().catch(() => "");
-        const buf = await page.screenshot({ fullPage: false });
-        shotPath = `bot-runs/${run.id}/step-error-${i + 1}-${Date.now()}.png`;
-        await db.storage.from("documents").upload(shotPath, buf, { contentType: "image/png" });
-      } catch { shotPath = null; }
+      // Diagnose: Screenshot, HTML, Element-Kandidaten, URL und Titel festhalten.
+      const pageUrl = (() => { try { return page.url(); } catch { return ""; } })();
+      const pageTitle = await page.title().catch(() => "");
+      const diag = await captureDiagnostics(page, run.id, `step-error-${i + 1}`);
+      const tracePath = await stopTrace(run.id, `step-error-${i + 1}`);
+      const debug = {
+        step: i + 1,
+        action: step.action,
+        selector,
+        selector_alternatives: selector ? splitSelectors(selector) : [],
+        url: pageUrl,
+        title: pageTitle,
+        error: String(err?.message ?? err).slice(0, 500),
+        html_path: diag.html_path ?? null,
+        trace_path: tracePath,
+        candidates: (diag.candidates ?? []).slice(0, 80),
+        at: new Date().toISOString(),
+      };
+      await db.from("bot_runs").update({ debug }).eq("id", run.id);
 
       log = await appendLog(
         run.id, log,
@@ -409,18 +417,19 @@ async function runSteps(page: Page, run: Run, steps: Step[]) {
       );
 
       // Element nicht gefunden/klickbar → an den Admin übergeben statt abbrechen.
-      const isElementProblem = /Timeout .* exceeded|waiting for (?:selector|locator)|not (?:visible|attached|enabled)/i.test(String(err?.message ?? ""));
+      const isElementProblem = /Timeout .* exceeded|waiting for (?:selector|locator)|not (?:visible|attached|enabled)|Kein (?:Element|Eingabefeld|Auswahlfeld)|nicht erschienen/i.test(String(err?.message ?? ""));
       if (isElementProblem) {
         await db.from("bot_runs").update({
           status: "waiting_admin",
-          handoff_reason: `Schritt ${i + 1} (${step.label ?? step.action}) konnte nicht ausgeführt werden – Element "${selector}" war nicht erreichbar. Bitte Screenshot prüfen und ggf. den Selektor im Bot-Profil korrigieren.`,
+          handoff_reason: `Schritt ${i + 1} (${step.label ?? step.action}) konnte nicht ausgeführt werden – Element "${selector}" war nicht erreichbar. Bitte Screenshot und Element-Vorschläge prüfen und ggf. den Selektor im Bot-Profil korrigieren.`,
           handoff_url: pageUrl,
-          ...(shotPath ? { screenshot_path: shotPath } : {}),
+          ...(diag.screenshot_path ? { screenshot_path: diag.screenshot_path } : {}),
         }).eq("id", run.id);
         return "handoff" as const;
       }
 
       throw new Error(`Schritt ${i + 1} (${step.action}) fehlgeschlagen: ${err.message}`);
+
     }
   }
 
