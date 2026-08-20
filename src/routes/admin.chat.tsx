@@ -975,7 +975,25 @@ function AdminChatPage() {
 
             {/* Messages */}
             <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
+              {historyError && (
+                <div className="text-center">
+                  <p className="text-xs text-red-600 dark:text-red-400 mb-2">{historyError}</p>
+                  <Button variant="outline" size="sm" className="text-xs h-8"
+                    onClick={() => selectConversation(selectedUserId!)}>
+                    Erneut versuchen
+                  </Button>
+                </div>
+              )}
+              {hasMore && (
+                <div className="text-center">
+                  <Button variant="ghost" size="sm" className="text-xs h-8"
+                    disabled={loadingOlder} onClick={loadOlderMessages}>
+                    {loadingOlder ? "Lädt …" : "Ältere Nachrichten laden"}
+                  </Button>
+                </div>
+              )}
               {messages.map((msg) => {
+
                 // „Meine Nachricht" = von einem Admin-/Teamleiter-Konto gesendet
                 const isMine = msg.sender_id === user!.id || adminIdsRef.current.has(msg.sender_id);
                 const isAi = msg.is_ai;
