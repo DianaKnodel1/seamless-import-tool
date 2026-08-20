@@ -87,6 +87,70 @@ async function gotoWithRetry(page: Page, url: string, timeout: number, onLog: (m
   throw lastErr;
 }
 
+/** Klickt gängige Cookie-/Consent-Buttons weg (auch in iFrames). */
+async function dismissConsent(page: Page) {
+  const names = /^(Alle akzeptieren|Alles akzeptieren|Akzeptieren|Zustimmen|Einverstanden|Alle Cookies akzeptieren|Auswahl bestätigen|OK)$/i;
+  const frames = [page.mainFrame(), ...page.frames()];
+  for (const frame of frames) {
+    try {
+      const btn = frame.getByRole("button", { name: names }).first();
+      if (await btn.isVisible({ timeout: 1000 }).catch(() => false)) {
+        await btn.click({ timeout: 5000 }).catch(() => undefined);
+        await page.waitForTimeout(500);
+        return;
+      }
+      const alt = frame.locator(
+        "#onetrust-accept-btn-handler, button[data-testid='uc-accept-all-button'], #usercentrics-root >>> button",
+      ).first();
+      if (await alt.isVisible({ timeout: 500 }).catch(() => false)) {
+        await alt.click({ timeout: 5000 }).catch(() => undefined);
+        await page.waitForTimeout(500);
+        return;
+      }
+    } catch { /* Frame nicht erreichbar – ignorieren */ }
+  }
+}
+
+/**
+ * Robuster Klick: Consent wegklicken, scrollen, Fallback auf Text-/Rollen-Suche
+ * und zuletzt JavaScript-Klick.
+ */
+async function clickWithRetry(page: Page, selector: string, timeout: number, onLog: (m: string) => Promise<void>) {
+  const attempts = 3;
+  let lastErr: any;
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      if (attempt > 1) await dismissConsent(page);
+      const el = page.locator(selector).first();
+      await el.waitFor({ state: "attached", timeout: Math.round(timeout / attempts) });
+      await el.scrollIntoViewIfNeeded({ timeout: 5000 }).catch(() => undefined);
+      await el.click({ timeout: Math.round(timeout / attempts) });
+      return;
+    } catch (err: any) {
+      lastErr = err;
+      await onLog(`Klick Versuch ${attempt}/${attempts} auf "${selector}" fehlgeschlagen – neuer Versuch`);
+    }
+  }
+  // Fallback 1: Text-/Rollen-Suche, falls der Selektor Text enthält
+  const textMatch = selector.match(/text=["']?([^"'\]]+)/i);
+  if (textMatch?.[1]) {
+    const byRole = page.getByRole("button", { name: new RegExp(textMatch[1], "i") }).first();
+    if (await byRole.isVisible().catch(() => false)) {
+      await byRole.click({ timeout }); return;
+    }
+  }
+  // Fallback 2: JavaScript-Klick (überdeckende Layer umgehen)
+  const done = await page.evaluate((sel) => {
+    const node = document.querySelector(sel) as HTMLElement | null;
+    if (!node) return false;
+    node.click();
+    return true;
+  }, selector).catch(() => false);
+  if (done) { await onLog(`Klick auf "${selector}" per JavaScript ausgeführt`); return; }
+  throw lastErr;
+}
+
+
 async function runSteps(page: Page, run: Run, steps: Step[]) {
   const vars = { ...run.input_data, ...run.credentials };
   let log = run.log ?? [];
