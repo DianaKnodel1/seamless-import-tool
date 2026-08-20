@@ -58,6 +58,31 @@ async function appendLog(runId: string, current: Run["log"], msg: string) {
   return log;
 }
 
+/** Netzwerkfehler, bei denen ein erneuter Versuch sinnvoll ist. */
+function isNetworkError(msg: string): boolean {
+  return /ERR_TIMED_OUT|ERR_CONNECTION|ERR_NETWORK|ERR_PROXY|ERR_TUNNEL|ERR_EMPTY_RESPONSE|ERR_NAME_NOT_RESOLVED|Timeout .* exceeded/i.test(msg);
+}
+
+/** Öffnet eine Seite mit mehreren Versuchen (Proxys sind oft langsam/instabil). */
+async function gotoWithRetry(page: Page, url: string, timeout: number, onLog: (m: string) => Promise<void>) {
+  const attempts = Number(process.env.GOTO_RETRIES ?? 3);
+  let lastErr: any;
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      await page.goto(url, { waitUntil: "commit", timeout });
+      await page.waitForLoadState("domcontentloaded", { timeout }).catch(() => undefined);
+      return;
+    } catch (err: any) {
+      lastErr = err;
+      const msg = String(err?.message ?? err);
+      if (attempt >= attempts || !isNetworkError(msg)) throw err;
+      await onLog(`Seitenaufruf Versuch ${attempt}/${attempts} fehlgeschlagen (${msg.split("\n")[0]}) – neuer Versuch`);
+      await page.waitForTimeout(2000 * attempt);
+    }
+  }
+  throw lastErr;
+}
+
 async function runSteps(page: Page, run: Run, steps: Step[]) {
   const vars = { ...run.input_data, ...run.credentials };
   let log = run.log ?? [];
@@ -65,7 +90,7 @@ async function runSteps(page: Page, run: Run, steps: Step[]) {
   for (let i = 0; i < steps.length; i++) {
     const step = steps[i];
     if (!step) continue;
-    const timeout = step.timeout ?? 20000;
+    const timeout = step.timeout ?? (step.action === "goto" ? NAV_TIMEOUT : 20000);
     const selector = step.selector ? render(step.selector, vars) : "";
     const value = step.value ? render(step.value, vars) : "";
 
@@ -74,8 +99,9 @@ async function runSteps(page: Page, run: Run, steps: Step[]) {
     try {
       switch (step.action) {
         case "goto":
-          await page.goto(value, { waitUntil: "domcontentloaded", timeout });
+          await gotoWithRetry(page, value, timeout, async (m) => { log = await appendLog(run.id, log, m); });
           break;
+
         case "fill":
           await page.fill(selector, value, { timeout });
           break;
