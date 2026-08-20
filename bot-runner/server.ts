@@ -33,6 +33,28 @@ if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
 
 let db: SupabaseClient;
 let chromium: BrowserType<Chromium>;
+// Aktiver Browser-Kontext mit laufender Aufzeichnung (für Fehler-Traces).
+let activeContext: BrowserContext | null = null;
+const TRACE_ENABLED = process.env.TRACE !== "false";
+
+/** Beendet die Aufzeichnung und legt das Trace-Zip in den Storage. */
+async function stopTrace(runId: string, tag: string): Promise<string | null> {
+  const ctx = activeContext;
+  activeContext = null;
+  if (!ctx || !TRACE_ENABLED) return null;
+  const file = join(tmpdir(), `trace-${runId}-${Date.now()}.zip`);
+  try {
+    await ctx.tracing.stop({ path: file });
+    const buf = await readFile(file);
+    const path = `bot-runs/${runId}/${tag}-trace-${Date.now()}.zip`;
+    await db.storage.from("documents").upload(path, buf, { contentType: "application/zip" });
+    return path;
+  } catch {
+    return null;
+  } finally {
+    await unlink(file).catch(() => undefined);
+  }
+}
 
 interface Step {
   action: "goto" | "fill" | "click" | "select" | "wait" | "screenshot" | "advance" | "extract" | "handoff";
