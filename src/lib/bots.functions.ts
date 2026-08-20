@@ -61,7 +61,27 @@ export interface BotRunRow {
   finished_at: string | null;
   created_at: string;
   proxy_id?: string | null;
+  debug?: BotRunDebug | null;
 }
+
+/** Diagnosedaten, die der Bot-Runner bei einem fehlgeschlagenen Schritt speichert. */
+export interface BotRunDebug {
+  step?: number;
+  action?: string;
+  selector?: string;
+  selector_alternatives?: string[];
+  url?: string;
+  title?: string;
+  error?: string;
+  html_path?: string | null;
+  trace_path?: string | null;
+  candidates?: {
+    tag?: string; type?: string; id?: string; name?: string;
+    testid?: string; aria?: string; text?: string; selector?: string;
+  }[];
+  at?: string;
+}
+
 
 export const listBotProfiles = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
