@@ -368,15 +368,26 @@ function AdminBotsPage() {
                         {r.started_at ? new Date(r.started_at).toLocaleString("de-DE") : "–"}
                       </td>
                       <td className="px-4 py-3">
-                        {!["done", "cancelled"].includes(r.status) && (
-                          <Button
-                            size="sm" variant="ghost" className="h-7 text-xs"
-                            onClick={() => statusM.mutate({ id: r.id, status: "cancelled" })}
-                          >
-                            Abbrechen
-                          </Button>
-                        )}
+                        <div className="flex gap-1">
+                          {(r.debug || r.screenshot_path) && (
+                            <Button
+                              size="sm" variant="ghost" className="h-7 text-xs"
+                              onClick={() => setDebugRun(r)}
+                            >
+                              Diagnose
+                            </Button>
+                          )}
+                          {!["done", "cancelled"].includes(r.status) && (
+                            <Button
+                              size="sm" variant="ghost" className="h-7 text-xs"
+                              onClick={() => statusM.mutate({ id: r.id, status: "cancelled" })}
+                            >
+                              Abbrechen
+                            </Button>
+                          )}
+                        </div>
                       </td>
+
                     </tr>
                   ))}
                 </tbody>
