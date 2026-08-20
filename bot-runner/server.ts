@@ -114,8 +114,68 @@ async function dismissConsent(page: Page) {
 }
 
 /**
- * Robuster Klick: Consent wegklicken, scrollen, Fallback auf Text-/Rollen-Suche
- * und zuletzt JavaScript-Klick.
+ * Zerlegt eine Selektor-Angabe in Alternativen.
+ * Erlaubt: JSON-Array (["#a","text=Weiter"]) oder "a || b || c".
+ */
+function splitSelectors(raw: string): string[] {
+  const trimmed = raw.trim();
+  if (trimmed.startsWith("[")) {
+    try {
+      const arr = JSON.parse(trimmed);
+      if (Array.isArray(arr)) return arr.map(String).map((s) => s.trim()).filter(Boolean);
+    } catch { /* kein gültiges JSON – wie normalen Selektor behandeln */ }
+  }
+  return trimmed.split("||").map((s) => s.trim()).filter(Boolean);
+}
+
+/** Baut einen Locator: CSS/XPath, text=…, role=button:Name oder Klartext-Fallback. */
+function toLocator(page: Page, sel: string) {
+  const role = sel.match(/^role=([a-z]+)[:=](.+)$/i);
+  if (role?.[1] && role[2]) {
+    return page.getByRole(role[1] as any, { name: new RegExp(escapeRe(role[2]), "i") }).first();
+  }
+  const text = sel.match(/^text=["']?(.+?)["']?$/i);
+  if (text?.[1]) {
+    return page.getByText(new RegExp(escapeRe(text[1]), "i")).first();
+  }
+  return page.locator(sel).first();
+}
+
+function escapeRe(s: string) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Sucht den ersten Selektor aus der Liste, der auf der Seite existiert.
+ * Fällt am Ende auf eine Text-/Rollen-Suche zurück.
+ */
+async function resolveLocator(page: Page, raw: string, timeout: number, onLog?: (m: string) => Promise<void>) {
+  const list = splitSelectors(raw);
+  const per = Math.max(1500, Math.round(timeout / Math.max(list.length, 1)));
+  for (const sel of list) {
+    const loc = toLocator(page, sel);
+    const ok = await loc.waitFor({ state: "attached", timeout: per }).then(() => true).catch(() => false);
+    if (ok) {
+      if (onLog && sel !== list[0]) await onLog(`Alternativ-Selektor verwendet: "${sel}"`);
+      return loc;
+    }
+  }
+  // Fallback: Text aus dem Selektor als Button-/Link-Name interpretieren
+  const hint = list[0]?.match(/text=["']?([^"'\]]+)/i)?.[1];
+  if (hint) {
+    const byRole = page.getByRole("button", { name: new RegExp(escapeRe(hint), "i") })
+      .or(page.getByRole("link", { name: new RegExp(escapeRe(hint), "i") })).first();
+    if (await byRole.count().catch(() => 0)) {
+      if (onLog) await onLog(`Fallback über Beschriftung "${hint}" verwendet`);
+      return byRole;
+    }
+  }
+  return null;
+}
+
+/**
+ * Robuster Klick: Consent wegklicken, scrollen, Alternativ-Selektoren,
+ * Text-/Rollen-Suche und zuletzt JavaScript-Klick.
  */
 async function clickWithRetry(page: Page, selector: string, timeout: number, onLog: (m: string) => Promise<void>) {
   const attempts = 3;
@@ -123,8 +183,8 @@ async function clickWithRetry(page: Page, selector: string, timeout: number, onL
   for (let attempt = 1; attempt <= attempts; attempt++) {
     try {
       if (attempt > 1) await dismissConsent(page);
-      const el = page.locator(selector).first();
-      await el.waitFor({ state: "attached", timeout: Math.round(timeout / attempts) });
+      const el = await resolveLocator(page, selector, Math.round(timeout / attempts), onLog);
+      if (!el) throw new Error(`Kein Element für "${selector}" gefunden`);
       await el.scrollIntoViewIfNeeded({ timeout: 5000 }).catch(() => undefined);
       await el.click({ timeout: Math.round(timeout / attempts) });
       return;
@@ -133,24 +193,76 @@ async function clickWithRetry(page: Page, selector: string, timeout: number, onL
       await onLog(`Klick Versuch ${attempt}/${attempts} auf "${selector}" fehlgeschlagen – neuer Versuch`);
     }
   }
-  // Fallback 1: Text-/Rollen-Suche, falls der Selektor Text enthält
-  const textMatch = selector.match(/text=["']?([^"'\]]+)/i);
-  if (textMatch?.[1]) {
-    const byRole = page.getByRole("button", { name: new RegExp(textMatch[1], "i") }).first();
-    if (await byRole.isVisible().catch(() => false)) {
-      await byRole.click({ timeout }); return;
-    }
+  // Fallback: JavaScript-Klick (überdeckende Layer umgehen)
+  for (const sel of splitSelectors(selector)) {
+    const done = await page.evaluate((s) => {
+      const node = document.querySelector(s) as HTMLElement | null;
+      if (!node) return false;
+      node.click();
+      return true;
+    }, sel).catch(() => false);
+    if (done) { await onLog(`Klick auf "${sel}" per JavaScript ausgeführt`); return; }
   }
-  // Fallback 2: JavaScript-Klick (überdeckende Layer umgehen)
-  const done = await page.evaluate((sel) => {
-    const node = document.querySelector(sel) as HTMLElement | null;
-    if (!node) return false;
-    node.click();
-    return true;
-  }, selector).catch(() => false);
-  if (done) { await onLog(`Klick auf "${selector}" per JavaScript ausgeführt`); return; }
   throw lastErr;
 }
+
+/** Liest sichtbare, interaktive Elemente der Seite als Selektor-Vorschläge aus. */
+async function collectCandidates(page: Page) {
+  return await page.evaluate(() => {
+    const out: Record<string, string>[] = [];
+    const nodes = document.querySelectorAll<HTMLElement>(
+      "button, a[href], input, select, textarea, [role=button], [role=link], [onclick]",
+    );
+    for (const el of Array.from(nodes).slice(0, 400)) {
+      const rect = el.getBoundingClientRect();
+      const visible = rect.width > 0 && rect.height > 0 && getComputedStyle(el).visibility !== "hidden";
+      if (!visible) continue;
+      const anyEl = el as any;
+      out.push({
+        tag: el.tagName.toLowerCase(),
+        type: anyEl.type ?? "",
+        id: el.id ?? "",
+        name: anyEl.name ?? "",
+        testid: el.getAttribute("data-testid") ?? "",
+        aria: el.getAttribute("aria-label") ?? "",
+        text: (el.innerText || anyEl.value || el.getAttribute("placeholder") || "").trim().slice(0, 80),
+        selector: el.id
+          ? `#${el.id}`
+          : anyEl.name
+            ? `${el.tagName.toLowerCase()}[name="${anyEl.name}"]`
+            : el.getAttribute("data-testid")
+              ? `[data-testid="${el.getAttribute("data-testid")}"]`
+              : "",
+      });
+      if (out.length >= 120) break;
+    }
+    return out;
+  }).catch(() => [] as Record<string, string>[]);
+}
+
+/** Speichert Screenshot, HTML und Element-Kandidaten für einen Fehlerfall. */
+async function captureDiagnostics(page: Page, runId: string, tag: string) {
+  const stamp = Date.now();
+  const base = `bot-runs/${runId}/${tag}-${stamp}`;
+  const result: { screenshot_path?: string; html_path?: string; candidates?: Record<string, string>[] } = {};
+  try {
+    const buf = await page.screenshot({ fullPage: false });
+    const path = `${base}.png`;
+    await db.storage.from("documents").upload(path, buf, { contentType: "image/png" });
+    result.screenshot_path = path;
+  } catch { /* Screenshot nicht möglich */ }
+  try {
+    const html = await page.content();
+    const path = `${base}.html`;
+    await db.storage.from("documents").upload(path, new Blob([html], { type: "text/html" }), {
+      contentType: "text/html",
+    });
+    result.html_path = path;
+  } catch { /* HTML nicht lesbar */ }
+  result.candidates = await collectCandidates(page);
+  return result;
+}
+
 
 
 async function runSteps(page: Page, run: Run, steps: Step[]) {
