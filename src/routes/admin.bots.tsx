@@ -100,6 +100,7 @@ function AdminBotsPage() {
 
 
   const [editor, setEditor] = useState<typeof EMPTY_PROFILE | null>(null);
+  const [debugRun, setDebugRun] = useState<BotRunRow | null>(null);
   const [startFor, setStartFor] = useState<BotProfileRow | null>(null);
   const [startUser, setStartUser] = useState("");
   const [startEmail, setStartEmail] = useState("");
