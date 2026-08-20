@@ -49,6 +49,7 @@ const isUnanswered = (c: Conversation) =>
 
 // Interne KI-/Eskalations-Notizen: clientseitig filtern, damit keine normale
 // Nachricht durch serverseitige Textfilter verloren geht.
+const HISTORY_PAGE_SIZE = 200;
 function isInternalAdminNote(message: string | null | undefined) {
   const m = message ?? "";
   return (
@@ -106,6 +107,11 @@ function AdminChatPage() {
   const typingTimeoutRef = useRef<number | null>(null);
   const lastTypingSentRef = useRef(0);
   const bottomRef = useRef<HTMLDivElement>(null);
+  // Verlauf: neueste Seite zuerst, ältere auf Wunsch nachladen.
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+
   // user_id -> team_leader_id (für Antworten im Namen des Teamleiters)
   const leaderMapRef = useRef<Map<string, string | null>>(new Map());
   // Alle Admin-/Staff-Konten (Gegenseite im Chat)
@@ -247,12 +253,23 @@ function AdminChatPage() {
 
   const selectConversation = async (userId: string) => {
     setSelectedUserId(userId);
-    const { data: msgs } = await supabase
+    setHistoryError(null);
+    setHasMore(false);
+    // Immer die NEUESTEN Nachrichten laden (absteigend) und für die Anzeige umdrehen.
+    const { data: msgs, error: msgErr } = await supabase
       .from("chat_messages").select("*")
       .or(`sender_id.eq.${userId},receiver_id.eq.${userId}`)
-      .order("created_at", { ascending: true })
-      .limit(200);
-    setMessages(((msgs ?? []) as ChatMessage[]).filter((m) => !isInternalAdminNote(m.message)));
+      .order("created_at", { ascending: false })
+      .limit(HISTORY_PAGE_SIZE);
+    if (msgErr) {
+      setMessages([]);
+      setHistoryError("Verlauf konnte nicht geladen werden – bitte erneut versuchen.");
+    } else {
+      const rows = ((msgs ?? []) as ChatMessage[]).slice().reverse();
+      setHasMore(rows.length >= HISTORY_PAGE_SIZE);
+      setMessages(rows.filter((m) => !isInternalAdminNote(m.message)));
+    }
+
 
     await supabase
       .from("chat_messages").update({ read: true } as any)
@@ -266,6 +283,33 @@ function AdminChatPage() {
     setConversations((prev) => prev.map((c) => c.user_id === userId ? { ...c, unread: 0, adminUnread: false } : c));
     setNoteDraft(conversations.find((c) => c.user_id === userId)?.adminNote ?? "");
   };
+
+  /** Lädt die nächste Seite älterer Nachrichten vor die aktuell angezeigten. */
+  const loadOlderMessages = async () => {
+    if (!selectedUserId || loadingOlder) return;
+    const oldest = messages[0]?.created_at;
+    if (!oldest) return;
+    setLoadingOlder(true);
+    const { data, error } = await supabase
+      .from("chat_messages").select("*")
+      .or(`sender_id.eq.${selectedUserId},receiver_id.eq.${selectedUserId}`)
+      .lt("created_at", oldest)
+      .order("created_at", { ascending: false })
+      .limit(HISTORY_PAGE_SIZE);
+    if (error) {
+      setHistoryError("Ältere Nachrichten konnten nicht geladen werden.");
+    } else {
+      const rows = ((data ?? []) as ChatMessage[]).slice().reverse();
+      setHasMore(rows.length >= HISTORY_PAGE_SIZE);
+      setMessages((prev) => {
+        const known = new Set(prev.map((m) => m.id));
+        return [...rows.filter((m) => !known.has(m.id) && !isInternalAdminNote(m.message)), ...prev];
+      });
+    }
+    setLoadingOlder(false);
+  };
+
+
 
   const markUnread = async (userId: string) => {
     const { error } = await supabase
@@ -931,7 +975,25 @@ function AdminChatPage() {
 
             {/* Messages */}
             <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
+              {historyError && (
+                <div className="text-center">
+                  <p className="text-xs text-red-600 dark:text-red-400 mb-2">{historyError}</p>
+                  <Button variant="outline" size="sm" className="text-xs h-8"
+                    onClick={() => selectConversation(selectedUserId!)}>
+                    Erneut versuchen
+                  </Button>
+                </div>
+              )}
+              {hasMore && (
+                <div className="text-center">
+                  <Button variant="ghost" size="sm" className="text-xs h-8"
+                    disabled={loadingOlder} onClick={loadOlderMessages}>
+                    {loadingOlder ? "Lädt …" : "Ältere Nachrichten laden"}
+                  </Button>
+                </div>
+              )}
               {messages.map((msg) => {
+
                 // „Meine Nachricht" = von einem Admin-/Teamleiter-Konto gesendet
                 const isMine = msg.sender_id === user!.id || adminIdsRef.current.has(msg.sender_id);
                 const isAi = msg.is_ai;

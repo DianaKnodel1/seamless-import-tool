@@ -18,6 +18,8 @@ const WORKER_NAME = process.env.WORKER_NAME ?? `runner-${process.pid}`;
 const REQUIRE_PROXY = process.env.REQUIRE_PROXY !== "false";
 // Zeitlimit für Seitenaufrufe (Proxys sind oft langsam).
 const NAV_TIMEOUT = Number(process.env.NAV_TIMEOUT_MS ?? 60000);
+// Zeitlimit für Interaktionen (Klicks, Eingaben) – Bankstrecken laden träge.
+const STEP_TIMEOUT = Number(process.env.STEP_TIMEOUT_MS ?? 35000);
 const USER_AGENT = process.env.USER_AGENT ??
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
 
@@ -87,6 +89,70 @@ async function gotoWithRetry(page: Page, url: string, timeout: number, onLog: (m
   throw lastErr;
 }
 
+/** Klickt gängige Cookie-/Consent-Buttons weg (auch in iFrames). */
+async function dismissConsent(page: Page) {
+  const names = /^(Alle akzeptieren|Alles akzeptieren|Akzeptieren|Zustimmen|Einverstanden|Alle Cookies akzeptieren|Auswahl bestätigen|OK)$/i;
+  const frames = [page.mainFrame(), ...page.frames()];
+  for (const frame of frames) {
+    try {
+      const btn = frame.getByRole("button", { name: names }).first();
+      if (await btn.isVisible({ timeout: 1000 }).catch(() => false)) {
+        await btn.click({ timeout: 5000 }).catch(() => undefined);
+        await page.waitForTimeout(500);
+        return;
+      }
+      const alt = frame.locator(
+        "#onetrust-accept-btn-handler, button[data-testid='uc-accept-all-button'], #usercentrics-root >>> button",
+      ).first();
+      if (await alt.isVisible({ timeout: 500 }).catch(() => false)) {
+        await alt.click({ timeout: 5000 }).catch(() => undefined);
+        await page.waitForTimeout(500);
+        return;
+      }
+    } catch { /* Frame nicht erreichbar – ignorieren */ }
+  }
+}
+
+/**
+ * Robuster Klick: Consent wegklicken, scrollen, Fallback auf Text-/Rollen-Suche
+ * und zuletzt JavaScript-Klick.
+ */
+async function clickWithRetry(page: Page, selector: string, timeout: number, onLog: (m: string) => Promise<void>) {
+  const attempts = 3;
+  let lastErr: any;
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      if (attempt > 1) await dismissConsent(page);
+      const el = page.locator(selector).first();
+      await el.waitFor({ state: "attached", timeout: Math.round(timeout / attempts) });
+      await el.scrollIntoViewIfNeeded({ timeout: 5000 }).catch(() => undefined);
+      await el.click({ timeout: Math.round(timeout / attempts) });
+      return;
+    } catch (err: any) {
+      lastErr = err;
+      await onLog(`Klick Versuch ${attempt}/${attempts} auf "${selector}" fehlgeschlagen – neuer Versuch`);
+    }
+  }
+  // Fallback 1: Text-/Rollen-Suche, falls der Selektor Text enthält
+  const textMatch = selector.match(/text=["']?([^"'\]]+)/i);
+  if (textMatch?.[1]) {
+    const byRole = page.getByRole("button", { name: new RegExp(textMatch[1], "i") }).first();
+    if (await byRole.isVisible().catch(() => false)) {
+      await byRole.click({ timeout }); return;
+    }
+  }
+  // Fallback 2: JavaScript-Klick (überdeckende Layer umgehen)
+  const done = await page.evaluate((sel) => {
+    const node = document.querySelector(sel) as HTMLElement | null;
+    if (!node) return false;
+    node.click();
+    return true;
+  }, selector).catch(() => false);
+  if (done) { await onLog(`Klick auf "${selector}" per JavaScript ausgeführt`); return; }
+  throw lastErr;
+}
+
+
 async function runSteps(page: Page, run: Run, steps: Step[]) {
   const vars = { ...run.input_data, ...run.credentials };
   let log = run.log ?? [];
@@ -94,7 +160,7 @@ async function runSteps(page: Page, run: Run, steps: Step[]) {
   for (let i = 0; i < steps.length; i++) {
     const step = steps[i];
     if (!step) continue;
-    const timeout = step.timeout ?? (step.action === "goto" ? NAV_TIMEOUT : 20000);
+    const timeout = step.timeout ?? (step.action === "goto" ? NAV_TIMEOUT : STEP_TIMEOUT);
     const selector = step.selector ? render(step.selector, vars) : "";
     const value = step.value ? render(step.value, vars) : "";
 
@@ -104,14 +170,18 @@ async function runSteps(page: Page, run: Run, steps: Step[]) {
       switch (step.action) {
         case "goto":
           await gotoWithRetry(page, value, timeout, async (m) => { log = await appendLog(run.id, log, m); });
+          await dismissConsent(page);
           break;
 
         case "fill":
+          await dismissConsent(page);
           await page.fill(selector, value, { timeout });
           break;
         case "click":
-          await page.click(selector, { timeout });
+          await dismissConsent(page);
+          await clickWithRetry(page, selector, timeout, async (m) => { log = await appendLog(run.id, log, m); });
           break;
+
         case "select":
           await page.selectOption(selector, value, { timeout });
           break;
@@ -196,9 +266,40 @@ async function runSteps(page: Page, run: Run, steps: Step[]) {
         log = await appendLog(run.id, log, `Schritt ${i + 1} übersprungen (optional): ${err.message}`);
         continue;
       }
+
+      // Diagnose: Screenshot, URL und Titel festhalten.
+      let shotPath: string | null = null;
+      let pageUrl = "";
+      let pageTitle = "";
+      try {
+        pageUrl = page.url();
+        pageTitle = await page.title().catch(() => "");
+        const buf = await page.screenshot({ fullPage: false });
+        shotPath = `bot-runs/${run.id}/step-error-${i + 1}-${Date.now()}.png`;
+        await db.storage.from("documents").upload(shotPath, buf, { contentType: "image/png" });
+      } catch { shotPath = null; }
+
+      log = await appendLog(
+        run.id, log,
+        `Schritt ${i + 1} (${step.action}) fehlgeschlagen auf ${pageUrl || "unbekannter Seite"}${pageTitle ? ` ("${pageTitle}")` : ""}: ${err.message}`,
+      );
+
+      // Element nicht gefunden/klickbar → an den Admin übergeben statt abbrechen.
+      const isElementProblem = /Timeout .* exceeded|waiting for (?:selector|locator)|not (?:visible|attached|enabled)/i.test(String(err?.message ?? ""));
+      if (isElementProblem) {
+        await db.from("bot_runs").update({
+          status: "waiting_admin",
+          handoff_reason: `Schritt ${i + 1} (${step.label ?? step.action}) konnte nicht ausgeführt werden – Element "${selector}" war nicht erreichbar. Bitte Screenshot prüfen und ggf. den Selektor im Bot-Profil korrigieren.`,
+          handoff_url: pageUrl,
+          ...(shotPath ? { screenshot_path: shotPath } : {}),
+        }).eq("id", run.id);
+        return "handoff" as const;
+      }
+
       throw new Error(`Schritt ${i + 1} (${step.action}) fehlgeschlagen: ${err.message}`);
     }
   }
+
   return "done" as const;
 }
 
