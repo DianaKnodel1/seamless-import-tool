@@ -6,9 +6,9 @@ Das teuerste Muster bisher: jeder Fehlversuch = neue Lovable-Runde (Code ändern
 
 1. **Selektoren gehören ins Bot-Profil (DB), nicht in den Code.** Ein falscher Selektor darf nie ein Redeploy erfordern – du korrigierst ihn im Admin-UI und startest neu. Das ist bereits so angelegt (`bot_profiles.steps`), wir nutzen es konsequent.
 2. **Fehler müssen selbsterklärend sein.** Screenshot + Seiten-URL + Titel gibt es schon; ergänzen um gespeichertes HTML und eine Liste sichtbarer Kandidaten-Elemente (Buttons/Inputs mit Text, id, name), damit du den richtigen Selektor direkt ablesen kannst statt zu raten.
-3. **Lokaler Test-Modus auf dem Server.** Ein Kommando, das einen Bot-Profil-Lauf im sichtbaren/Trace-Modus gegen die Bankseite fährt, ohne Portal-Queue. Damit testest du Selektoren in Minuten statt Deploy-Zyklen.
+3. **Diagnose direkt am echten Lauf.** Kein separater Testmodus – die Artefakte des fehlgeschlagenen Portal-Laufs (Screenshot, HTML, Elementliste) reichen, um den Selektor im Admin zu korrigieren und neu zu starten.
 
-## Vorschlag: 3 kleine Bausteine (einmalige Umsetzung)
+## Vorschlag: 2 Bausteine (einmalige Umsetzung)
 
 ### A. Bessere Fehler-Diagnose im Runner
 Bei Schritt-Fehler zusätzlich speichern:
