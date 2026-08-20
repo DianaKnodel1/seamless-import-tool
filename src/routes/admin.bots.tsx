@@ -449,7 +449,10 @@ function AdminBotsPage() {
                   Aktionen: goto, fill, click, select, wait, screenshot, handoff. Platzhalter wie{" "}
                   <code>{"{{first_name}}"}</code>, <code>{"{{email}}"}</code>, <code>{"{{password}}"}</code>{" "}
                   werden pro Lauf ersetzt. <code>"optional": true</code> überspringt fehlende Elemente.
+                  Mehrere Selektoren als Alternativen mit <code>||</code> trennen (z. B.{" "}
+                  <code>#weiter || text=Weiter || role=button:Weiter</code>) – der erste Treffer wird genommen.
                 </p>
+
               </div>
               <div className="flex items-center gap-2">
                 <Switch checked={editor.is_active} onCheckedChange={(v) => setEditor({ ...editor, is_active: v })} />
