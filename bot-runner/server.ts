@@ -446,7 +446,8 @@ async function runSteps(page: Page, run: Run, steps: Step[]) {
       }
       log = await appendLog(run.id, log, `Schritt ${i + 1}/${steps.length} ok: ${step.label ?? step.action}`);
     } catch (err: any) {
-      if (step.optional) {
+      const unavailable = err instanceof PageUnavailableError;
+      if (step.optional && !unavailable) {
         log = await appendLog(run.id, log, `Schritt ${i + 1} übersprungen (optional): ${err.message}`);
         continue;
       }
@@ -476,6 +477,17 @@ async function runSteps(page: Page, run: Run, steps: Step[]) {
         `Schritt ${i + 1} (${step.action}) fehlgeschlagen auf ${pageUrl || "unbekannter Seite"}${pageTitle ? ` ("${pageTitle}")` : ""}: ${err.message}`,
       );
 
+      // Fehlerseite (404 o. Ä.) → sofort mit Klartext übergeben, kein langes Warten auf Elemente.
+      if (unavailable) {
+        await db.from("bot_runs").update({
+          status: "waiting_admin",
+          handoff_reason: `Schritt ${i + 1} (${step.label ?? step.action}): ${err.message}`,
+          handoff_url: pageUrl,
+          ...(diag.screenshot_path ? { screenshot_path: diag.screenshot_path } : {}),
+        }).eq("id", run.id);
+        return "handoff" as const;
+      }
+
       // Element nicht gefunden/klickbar → an den Admin übergeben statt abbrechen.
       const isElementProblem = /Timeout .* exceeded|waiting for (?:selector|locator)|not (?:visible|attached|enabled)|Kein (?:Element|Eingabefeld|Auswahlfeld)|nicht erschienen/i.test(String(err?.message ?? ""));
       if (isElementProblem) {
@@ -487,6 +499,7 @@ async function runSteps(page: Page, run: Run, steps: Step[]) {
         }).eq("id", run.id);
         return "handoff" as const;
       }
+
 
       throw new Error(`Schritt ${i + 1} (${step.action}) fehlgeschlagen: ${err.message}`);
 
