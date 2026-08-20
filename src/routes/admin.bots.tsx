@@ -161,10 +161,19 @@ function AdminBotsPage() {
   });
 
   const claimM = useMutation({
-    mutationFn: (id: string) => claim({ data: { id } }),
-    onSuccess: () => { toast({ title: "Übernommen" }); invalidate(); },
+    mutationFn: (v: { id: string; release: boolean }) => claim({ data: v }),
+    onSuccess: (_res, v) => {
+      toast({
+        title: v.release ? "Freigegeben" : "Übernommen",
+        description: v.release
+          ? "Der Lauf steht wieder für andere Admins bereit."
+          : "Der Lauf ist dir zugeordnet – Screenshot, Link und Daten stehen unten bereit.",
+      });
+      invalidate();
+    },
     onError: (e: any) => toast({ title: "Fehler", description: e.message, variant: "destructive" }),
   });
+
 
   const profileById = new Map((profilesQ.data?.rows ?? []).map((p) => [p.id, p]));
   const waiting = (runsQ.data?.rows ?? []).filter((r) => r.status === "waiting_admin");
