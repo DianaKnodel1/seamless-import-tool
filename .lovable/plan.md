@@ -25,29 +25,17 @@ Ergebnis: Du siehst im Admin genau, was der Bot gesehen hat, und kannst den Sele
 
 Damit überleben Läufe kleine Layout-Änderungen der Bank.
 
-### C. Offline-Testkommando
-`node --import tsx bot-runner/server.ts --dry-run --profile <id>`:
-- lädt Profil + Steps aus der DB
-- startet Browser (headless abschaltbar), läuft die Steps durch
-- schreibt Screenshot pro Schritt nach `./debug/`
-- schreibt nichts in `bot_runs`
-
-Du testest damit direkt auf dem Bot-Server, ohne Portal-Lauf und ohne Lovable-Runde.
-
 ## Wie wir Credits sparen (Arbeitsweise)
 
-- Ein einziger Umsetzungs-Durchgang für A+B+C, danach iterierst du selbst über Profil-Selektoren im Admin.
-- Statt Screenshots von Fehlläufen zu schicken: erst `--dry-run` laufen lassen, den Kandidaten-Dump lesen, Selektor im Admin fixen.
+- Ein einziger Umsetzungs-Durchgang für A+B, danach iterierst du selbst über Profil-Selektoren im Admin.
+- Statt Screenshots von Fehlläufen zu schicken: Artefakte des Laufs (Screenshot + Elementliste) im Admin öffnen, Selektor korrigieren, neuen Lauf starten.
 - Lovable nur noch holen, wenn (a) eine neue Aktion/Feature im Runner fehlt oder (b) ein echter Bug im Code auftritt – nicht für Selektor-Korrekturen.
 - Kein Frontend-Deploy nötig für Runner-Änderungen; Bot-Server-Pull reicht.
 
 ## Technische Details
 
-- Datei: `bot-runner/server.ts` (Schritt-Loop, Fehlerbehandlung, neuer CLI-Modus)
+- Datei: `bot-runner/server.ts` (Schritt-Loop und Fehlerbehandlung)
 - Storage-Pfade wie bisher unter `bot-runs/<run_id>/…`, zusätzlich `page-*.html`, `trace-*.zip`
 - Kein Schema-Change nötig, wenn Multi-Selektor als `"a, b"`-CSS-Liste oder JSON-Array in `steps` interpretiert wird
 - Admin-UI (`admin.bots.tsx`) bekommt Links zu HTML/Trace-Artefakten, sonst unverändert
 
-## Offene Frage
-
-Reicht dir A+B+C, oder willst du zuerst nur C (Testkommando), damit du selbst diagnostizieren kannst und wir danach gezielt fixen?
