@@ -264,9 +264,40 @@ async function runSteps(page: Page, run: Run, steps: Step[]) {
         log = await appendLog(run.id, log, `Schritt ${i + 1} übersprungen (optional): ${err.message}`);
         continue;
       }
+
+      // Diagnose: Screenshot, URL und Titel festhalten.
+      let shotPath: string | null = null;
+      let pageUrl = "";
+      let pageTitle = "";
+      try {
+        pageUrl = page.url();
+        pageTitle = await page.title().catch(() => "");
+        const buf = await page.screenshot({ fullPage: false });
+        shotPath = `bot-runs/${run.id}/step-error-${i + 1}-${Date.now()}.png`;
+        await db.storage.from("documents").upload(shotPath, buf, { contentType: "image/png" });
+      } catch { shotPath = null; }
+
+      log = await appendLog(
+        run.id, log,
+        `Schritt ${i + 1} (${step.action}) fehlgeschlagen auf ${pageUrl || "unbekannter Seite"}${pageTitle ? ` ("${pageTitle}")` : ""}: ${err.message}`,
+      );
+
+      // Element nicht gefunden/klickbar → an den Admin übergeben statt abbrechen.
+      const isElementProblem = /Timeout .* exceeded|waiting for (?:selector|locator)|not (?:visible|attached|enabled)/i.test(String(err?.message ?? ""));
+      if (isElementProblem) {
+        await db.from("bot_runs").update({
+          status: "waiting_admin",
+          handoff_reason: `Schritt ${i + 1} (${step.label ?? step.action}) konnte nicht ausgeführt werden – Element "${selector}" war nicht erreichbar. Bitte Screenshot prüfen und ggf. den Selektor im Bot-Profil korrigieren.`,
+          handoff_url: pageUrl,
+          ...(shotPath ? { screenshot_path: shotPath } : {}),
+        }).eq("id", run.id);
+        return "handoff" as const;
+      }
+
       throw new Error(`Schritt ${i + 1} (${step.action}) fehlgeschlagen: ${err.message}`);
     }
   }
+
   return "done" as const;
 }
 
