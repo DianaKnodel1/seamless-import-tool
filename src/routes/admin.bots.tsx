@@ -5,8 +5,9 @@ import { useServerFn } from "@tanstack/react-start";
 import {
   listBotProfiles, saveBotProfile, deleteBotProfile,
   listBotRuns, enqueueBotRun, claimBotRun, setBotRunStatus, listBotProxies,
-  type BotStep, type BotProfileRow,
+  type BotStep, type BotProfileRow, type BotRunRow,
 } from "@/lib/bots.functions";
+import { BotRunDebugDialog } from "@/components/admin/BotRunDebugDialog";
 import { useAdminData } from "@/contexts/AdminDataContext";
 import { getAllEmployees } from "@/lib/employee-utils";
 import { Button } from "@/components/ui/button";
