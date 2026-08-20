@@ -9,6 +9,7 @@ ENV_FILE="$PROJECT_DIR/.env.server"
 [ -f "$ENV_FILE" ] || ENV_FILE="$PROJECT_DIR/.env"
 
 REPO_BRANCH="${REPO_BRANCH:-main}"
+# NEUES Repository — immer dieses Repo verwenden (alter Link: zip-it-up)
 REPO_URL="${REPO_URL:-https://github.com/DianaKnodel1/seamless-import-tool.git}"
 SERVICE_NAME="${SERVICE_NAME:-portal.service}"
 PORT="${PORT:-3000}"
@@ -19,6 +20,15 @@ ACTIVE_RELEASE_LINK="${ACTIVE_RELEASE_LINK:-$PROJECT_DIR/current}"
 log() { printf "\n\033[1;36m▸ %s\033[0m\n" "$*"; }
 ok()  { printf "\033[1;32m  ✓ %s\033[0m\n" "$*"; }
 warn() { printf "\033[1;33m  ! %s\033[0m\n" "$*"; }
+
+# Vergleicht URLs unabhängig von .git-Suffix und trailing-slash
+normalize_url() {
+  local url="$1"
+  # Entferne .git am Ende und trailing slashes
+  url="${url%.git}"
+  url="${url%/}"
+  echo "$url"
+}
 
 env_file_value() {
   local key="$1"
@@ -42,10 +52,23 @@ cd "$PROJECT_DIR"
 {
   log "1/5  git pull"
   current_origin="$(git remote get-url origin 2>/dev/null || true)"
-  if [ "$current_origin" != "$REPO_URL" ]; then
+  normalized_current="$(normalize_url "$current_origin")"
+  normalized_target="$(normalize_url "$REPO_URL")"
+
+  if [ "$normalized_current" != "$normalized_target" ]; then
+    warn "Aktuelle Git-Quelle weicht ab: $current_origin"
     git remote set-url origin "$REPO_URL"
     ok "Git-Quelle auf $REPO_URL aktualisiert"
+  else
+    ok "Git-Quelle ist korrekt: $REPO_URL"
   fi
+
+  # Hard-Fallback: falls aus historischen Gründen noch zip-it-up verwendet wird, erneut setzen
+  if [ -n "$current_origin" ] && echo "$current_origin" | grep -q "zip-it-up"; then
+    warn "Alter zip-it-up Remote erkannt — wird auf $REPO_URL umgestellt"
+    git remote set-url origin "$REPO_URL"
+  fi
+
   git fetch --all
   git reset --hard "origin/$REPO_BRANCH"
 
