@@ -284,6 +284,33 @@ function AdminChatPage() {
     setNoteDraft(conversations.find((c) => c.user_id === userId)?.adminNote ?? "");
   };
 
+  /** Lädt die nächste Seite älterer Nachrichten vor die aktuell angezeigten. */
+  const loadOlderMessages = async () => {
+    if (!selectedUserId || loadingOlder) return;
+    const oldest = messages[0]?.created_at;
+    if (!oldest) return;
+    setLoadingOlder(true);
+    const { data, error } = await supabase
+      .from("chat_messages").select("*")
+      .or(`sender_id.eq.${selectedUserId},receiver_id.eq.${selectedUserId}`)
+      .lt("created_at", oldest)
+      .order("created_at", { ascending: false })
+      .limit(HISTORY_PAGE_SIZE);
+    if (error) {
+      setHistoryError("Ältere Nachrichten konnten nicht geladen werden.");
+    } else {
+      const rows = ((data ?? []) as ChatMessage[]).slice().reverse();
+      setHasMore(rows.length >= HISTORY_PAGE_SIZE);
+      setMessages((prev) => {
+        const known = new Set(prev.map((m) => m.id));
+        return [...rows.filter((m) => !known.has(m.id) && !isInternalAdminNote(m.message)), ...prev];
+      });
+    }
+    setLoadingOlder(false);
+  };
+
+
+
   const markUnread = async (userId: string) => {
     const { error } = await supabase
       .from("chat_conversations")
