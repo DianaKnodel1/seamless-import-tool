@@ -158,7 +158,7 @@ async function runSteps(page: Page, run: Run, steps: Step[]) {
   for (let i = 0; i < steps.length; i++) {
     const step = steps[i];
     if (!step) continue;
-    const timeout = step.timeout ?? (step.action === "goto" ? NAV_TIMEOUT : 20000);
+    const timeout = step.timeout ?? (step.action === "goto" ? NAV_TIMEOUT : STEP_TIMEOUT);
     const selector = step.selector ? render(step.selector, vars) : "";
     const value = step.value ? render(step.value, vars) : "";
 
@@ -168,14 +168,18 @@ async function runSteps(page: Page, run: Run, steps: Step[]) {
       switch (step.action) {
         case "goto":
           await gotoWithRetry(page, value, timeout, async (m) => { log = await appendLog(run.id, log, m); });
+          await dismissConsent(page);
           break;
 
         case "fill":
+          await dismissConsent(page);
           await page.fill(selector, value, { timeout });
           break;
         case "click":
-          await page.click(selector, { timeout });
+          await dismissConsent(page);
+          await clickWithRetry(page, selector, timeout, async (m) => { log = await appendLog(run.id, log, m); });
           break;
+
         case "select":
           await page.selectOption(selector, value, { timeout });
           break;
