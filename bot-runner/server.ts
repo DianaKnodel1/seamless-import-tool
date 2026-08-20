@@ -16,6 +16,10 @@ const HEADLESS = process.env.HEADLESS !== "false";
 const WORKER_NAME = process.env.WORKER_NAME ?? `runner-${process.pid}`;
 // Ohne Proxy startet standardmäßig kein Lauf (REQUIRE_PROXY=false zum Testen).
 const REQUIRE_PROXY = process.env.REQUIRE_PROXY !== "false";
+// Zeitlimit für Seitenaufrufe (Proxys sind oft langsam).
+const NAV_TIMEOUT = Number(process.env.NAV_TIMEOUT_MS ?? 60000);
+const USER_AGENT = process.env.USER_AGENT ??
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
 
 if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
   console.error("SUPABASE_URL und SERVICE_ROLE_KEY bzw. SUPABASE_SERVICE_ROLE_KEY müssen gesetzt sein.");
