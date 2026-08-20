@@ -6,7 +6,7 @@ Totalausfall wieder aufsetzt.
 
 ## Wichtig vorher
 
-- **Code ist sicher**: Das Git-Repository liegt auf GitHub (`zip-it-up`).
+- **Code ist sicher**: Das Git-Repository liegt auf GitHub (`seamless-import-tool`).
 - **Daten sind auf dem Backup-Server**: Datenbank, Uploads, Configs, Volumes.
 - **Maximaler Datenverlust**: Seit dem letzten Backup — bei täglichem Vollbackup
   + 6-Stunden-DB-Backup maximal 6 Stunden.
@@ -122,7 +122,7 @@ ein laufender Docker-Container `supabase-db` mit einer leeren Datenbank.
 ```bash
 cd /opt/apps/portal
 # Repo erneut klonen (falls es fehlt)
-git clone https://github.com/DianaKnodel1/zip-it-up.git /opt/apps/portal
+git clone https://github.com/DianaKnodel1/seamless-import-tool.git /opt/apps/portal
 
 # Config anlegen
 bash scripts/setup-server2.sh          # Portal + nginx

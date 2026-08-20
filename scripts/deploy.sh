@@ -9,7 +9,7 @@ ENV_FILE="$PROJECT_DIR/.env.server"
 [ -f "$ENV_FILE" ] || ENV_FILE="$PROJECT_DIR/.env"
 
 REPO_BRANCH="${REPO_BRANCH:-main}"
-REPO_URL="${REPO_URL:-https://github.com/DianaKnodel1/zip-it-up.git}"
+REPO_URL="${REPO_URL:-https://github.com/DianaKnodel1/seamless-import-tool.git}"
 SERVICE_NAME="${SERVICE_NAME:-portal.service}"
 PORT="${PORT:-3000}"
 HOST="${HOST:-127.0.0.1}"
@@ -41,6 +41,11 @@ validate_config() {
 cd "$PROJECT_DIR"
 {
   log "1/5  git pull"
+  current_origin="$(git remote get-url origin 2>/dev/null || true)"
+  if [ "$current_origin" != "$REPO_URL" ]; then
+    git remote set-url origin "$REPO_URL"
+    ok "Git-Quelle auf $REPO_URL aktualisiert"
+  fi
   git fetch --all
   git reset --hard "origin/$REPO_BRANCH"
 

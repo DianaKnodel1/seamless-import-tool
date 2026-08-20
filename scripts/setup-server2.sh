@@ -16,7 +16,7 @@
 set -euo pipefail
 
 # ── CONFIG ─────────────────────────────────────────────────────────────────
-REPO_URL="${REPO_URL:-https://github.com/DianaKnodel1/zip-it-up.git}"
+REPO_URL="${REPO_URL:-https://github.com/DianaKnodel1/seamless-import-tool.git}"
 REPO_BRANCH="${REPO_BRANCH:-main}"
 PROJECT_DIR="${PROJECT_DIR:-/opt/apps/portal}"
 # Alle Domains, die auf dieses Portal zeigen (space-separated)
@@ -60,6 +60,7 @@ if [ -d "$PROJECT_DIR/.git" ]; then
   echo "  Existiert bereits — Backup + pull statt clone"
   cp -a "$PROJECT_DIR" "${PROJECT_DIR}.backup-$(date +%Y%m%d-%H%M%S)"
   cd "$PROJECT_DIR"
+  git remote set-url origin "$REPO_URL"
   git fetch origin
   git checkout "$REPO_BRANCH"
   git pull --ff-only origin "$REPO_BRANCH"
