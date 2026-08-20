@@ -4,8 +4,11 @@
 //   npm install && npx playwright install chromium
 //   SUPABASE_URL=… SERVICE_ROLE_KEY=… npm start
 
+import { readFile, unlink } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { BrowserType, Chromium, Page } from "playwright";
+import type { BrowserContext, BrowserType, Chromium, Page } from "playwright";
 
 console.log(`[${new Date().toISOString()}] Runner-Bootstrap geladen`);
 
