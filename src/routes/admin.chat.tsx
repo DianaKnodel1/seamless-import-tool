@@ -247,12 +247,23 @@ function AdminChatPage() {
 
   const selectConversation = async (userId: string) => {
     setSelectedUserId(userId);
-    const { data: msgs } = await supabase
+    setHistoryError(null);
+    setHasMore(false);
+    // Immer die NEUESTEN Nachrichten laden (absteigend) und für die Anzeige umdrehen.
+    const { data: msgs, error: msgErr } = await supabase
       .from("chat_messages").select("*")
       .or(`sender_id.eq.${userId},receiver_id.eq.${userId}`)
-      .order("created_at", { ascending: true })
-      .limit(200);
-    setMessages(((msgs ?? []) as ChatMessage[]).filter((m) => !isInternalAdminNote(m.message)));
+      .order("created_at", { ascending: false })
+      .limit(HISTORY_PAGE_SIZE);
+    if (msgErr) {
+      setMessages([]);
+      setHistoryError("Verlauf konnte nicht geladen werden – bitte erneut versuchen.");
+    } else {
+      const rows = ((msgs ?? []) as ChatMessage[]).slice().reverse();
+      setHasMore(rows.length >= HISTORY_PAGE_SIZE);
+      setMessages(rows.filter((m) => !isInternalAdminNote(m.message)));
+    }
+
 
     await supabase
       .from("chat_messages").update({ read: true } as any)
