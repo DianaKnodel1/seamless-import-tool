@@ -18,6 +18,8 @@ const WORKER_NAME = process.env.WORKER_NAME ?? `runner-${process.pid}`;
 const REQUIRE_PROXY = process.env.REQUIRE_PROXY !== "false";
 // Zeitlimit für Seitenaufrufe (Proxys sind oft langsam).
 const NAV_TIMEOUT = Number(process.env.NAV_TIMEOUT_MS ?? 60000);
+// Zeitlimit für Interaktionen (Klicks, Eingaben) – Bankstrecken laden träge.
+const STEP_TIMEOUT = Number(process.env.STEP_TIMEOUT_MS ?? 35000);
 const USER_AGENT = process.env.USER_AGENT ??
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
 
