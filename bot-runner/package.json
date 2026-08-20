@@ -1,0 +1,13 @@
+{
+  "name": "bot-runner",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node --import tsx server.ts"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.0",
+    "playwright": "^1.47.0",
+    "tsx": "^4.20.6"
+  }
+}
