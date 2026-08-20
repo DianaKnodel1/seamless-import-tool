@@ -20,7 +20,7 @@ Für jede Simulationsdomain einen A-Record auf die IP des WebID-Servers setzen.
 ```bash
 ssh root@<WEBID-SERVER-IP>
 apt-get update && apt-get install -y git curl
-git clone https://github.com/DianaKnodel1/zip-it-up.git /opt/src/portal
+git clone https://github.com/DianaKnodel1/seamless-import-tool.git /opt/src/portal
 cd /opt/src/portal/webid-sim-server
 
 SUPABASE_URL=https://<backend-host> \
@@ -59,7 +59,7 @@ ssh root@<BOT-SERVER-IP>
 apt-get update && apt-get install -y git curl unzip
 curl -fsSL https://bun.sh/install | bash && ln -sf /root/.bun/bin/bun /usr/local/bin/bun
 
-git clone https://github.com/DianaKnodel1/zip-it-up.git /opt/apps/portal
+git clone https://github.com/DianaKnodel1/seamless-import-tool.git /opt/apps/portal
 cd /opt/apps/portal
 
 cat > /opt/apps/portal/.env.server <<'EOF'
@@ -89,7 +89,9 @@ Proxys im Portal unter `/admin/bots` hinterlegen und dort mit „Proxy testen" p
 
 ### 2.4 Updates
 ```bash
-cd /opt/apps/portal && git pull && bash scripts/setup-bot-runner.sh
+cd /opt/apps/portal
+git remote set-url origin https://github.com/DianaKnodel1/seamless-import-tool.git
+git pull && bash scripts/setup-bot-runner.sh
 ```
 
 ---
@@ -99,7 +101,7 @@ cd /opt/apps/portal && git pull && bash scripts/setup-bot-runner.sh
 | Symptom | Ursache / Lösung |
 |---|---|
 | `Unit bot-runner.service could not be found` | `scripts/setup-bot-runner.sh` wurde noch nicht ausgeführt |
-| Lauf bleibt „In Warteschlange" | Bot-Runner-Dienst läuft nicht oder kein aktiver Proxy hinterlegt |
+| Lauf bleibt „In Warteschlange" | `journalctl -u bot-runner -n 50 --no-pager` prüfen; bei erfolgreichem Start stehen dort `Bot-Runner gestartet` und `Polling queue...` |
 | `bun: command not found` | Bun installieren und nach `/usr/local/bin/bun` verlinken |
 | Caddy-Zertifikat fehlt | DNS zeigt noch nicht auf den WebID-Server, Port 80/443 offen? |
 | Playwright-Fehler zu fehlenden Bibliotheken | `bunx playwright install --with-deps chromium` erneut ausführen |

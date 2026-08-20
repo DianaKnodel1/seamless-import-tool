@@ -63,10 +63,13 @@ WorkingDirectory=$RUNNER_DIR
 EnvironmentFile=$ENV_FILE
 Environment=HEADLESS=true
 Environment=REQUIRE_PROXY=true
-ExecStart=/usr/bin/npm start
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/node --import tsx server.ts
 Restart=always
 RestartSec=5
 User=root
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
@@ -76,13 +79,19 @@ systemctl daemon-reload
 systemctl enable bot-runner.service
 systemctl restart bot-runner.service
 
-for _ in $(seq 1 15); do
-  if systemctl is-active --quiet bot-runner.service; then
-    echo "Bot-Runner ist aktiv."
+for _ in $(seq 1 20); do
+  if journalctl -u bot-runner.service --since "30 seconds ago" --no-pager 2>/dev/null \
+    | grep -q "Bot-Runner gestartet"; then
+    echo "Bot-Runner ist aktiv und verarbeitet die Queue."
     exit 0
+  fi
+  if ! systemctl is-active --quiet bot-runner.service; then
+    break
   fi
   sleep 1
 done
 
+echo "Bot-Runner-Prozess meldet keinen erfolgreichen Start. Letzte Logs:" >&2
+journalctl -u bot-runner.service -n 50 --no-pager >&2 || true
 systemctl status bot-runner.service --no-pager || true
 exit 1

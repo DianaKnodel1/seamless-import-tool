@@ -4,10 +4,10 @@
 //   npm install && npx playwright install chromium
 //   SUPABASE_URL=… SERVICE_ROLE_KEY=… npm start
 
-import { createClient } from "@supabase/supabase-js";
-import { chromium, type Page } from "playwright";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import type { BrowserType, Chromium, Page } from "playwright";
 
-console.log(`[${new Date().toISOString()}] Runner-Modul geladen`);
+console.log(`[${new Date().toISOString()}] Runner-Bootstrap geladen`);
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SERVICE_ROLE_KEY = process.env.SERVICE_ROLE_KEY ?? process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -22,9 +22,8 @@ if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
   process.exit(1);
 }
 
-const db = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
-  auth: { persistSession: false },
-});
+let db: SupabaseClient;
+let chromium: BrowserType<Chromium>;
 
 interface Step {
   action: "goto" | "fill" | "click" | "select" | "wait" | "screenshot" | "advance" | "extract" | "handoff";
@@ -246,8 +245,6 @@ async function processOne(): Promise<boolean> {
   return true;
 }
 
-console.log(`[${new Date().toISOString()}] Bot-Runner gestartet (Poll ${POLL_MS}ms, headless=${HEADLESS}, worker=${WORKER_NAME})`);
-
 // Hauptschleife
 async function mainLoop() {
   for (;;) {
@@ -264,7 +261,21 @@ async function mainLoop() {
   }
 }
 
-mainLoop().catch(err => {
+async function bootstrap() {
+  console.log(`[${new Date().toISOString()}] Lade Datenbank- und Browser-Module ...`);
+  const [{ createClient }, playwright] = await Promise.all([
+    import("@supabase/supabase-js"),
+    import("playwright"),
+  ]);
+  db = createClient(SUPABASE_URL as string, SERVICE_ROLE_KEY as string, {
+    auth: { persistSession: false },
+  });
+  chromium = playwright.chromium;
+  console.log(`[${new Date().toISOString()}] Bot-Runner gestartet (Poll ${POLL_MS}ms, headless=${HEADLESS}, worker=${WORKER_NAME})`);
+  await mainLoop();
+}
+
+bootstrap().catch(err => {
   console.error("FATAL: Bot-Runner Hauptschleife abgebrochen:", err);
   process.exit(1);
 });
