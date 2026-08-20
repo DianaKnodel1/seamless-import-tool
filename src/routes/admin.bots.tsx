@@ -8,6 +8,7 @@ import {
   type BotStep, type BotProfileRow, type BotRunRow,
 } from "@/lib/bots.functions";
 import { BotRunDebugDialog } from "@/components/admin/BotRunDebugDialog";
+import { BotHandoffCard } from "@/components/admin/BotHandoffCard";
 import { useAdminData } from "@/contexts/AdminDataContext";
 import { getAllEmployees } from "@/lib/employee-utils";
 import { Button } from "@/components/ui/button";
