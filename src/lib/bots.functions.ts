@@ -57,6 +57,7 @@ export interface BotRunRow {
   screenshot_path: string | null;
   last_error: string | null;
   claimed_by: string | null;
+  claimed_at?: string | null;
   started_at: string | null;
   finished_at: string | null;
   created_at: string;
