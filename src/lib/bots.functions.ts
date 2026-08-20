@@ -160,6 +160,20 @@ export const listBotRuns = createServerFn({ method: "GET" })
     return { rows: (data ?? []) as BotRunRow[] };
   });
 
+/** Signierter Link auf ein Diagnose-Artefakt (Screenshot, HTML, Trace) eines Laufs. */
+export const getBotArtifactUrl = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((i: unknown) => z.object({ path: z.string().min(1).max(300) }).parse(i))
+  .handler(async ({ data, context }): Promise<{ url: string | null }> => {
+    await requireAdmin(context);
+    if (!data.path.startsWith("bot-runs/")) throw new Error("Ungültiger Pfad");
+    const db = context.supabase as any;
+    const { data: signed } = await db.storage.from("documents").createSignedUrl(data.path, 600);
+    return { url: signed?.signedUrl ?? null };
+  });
+
+
+
 const EnqueueInput = z.object({
   profile_id: z.string().uuid(),
   user_id: z.string().uuid().nullable().optional(),
