@@ -34,12 +34,31 @@ const FIELD_LABEL: Record<string, string> = {
 };
 
 export function BotHandoffCard({
-  run, profileName, employeeName, claimedByName, onClaim, onDone, onDiagnose,
+  run, profileName, employeeName, claimedByName, onClaim, onDone, onDiagnose, onResumed,
 }: Props) {
   const { toast } = useToast();
   const signUrl = useServerFn(getBotArtifactUrl);
+  const resume = useServerFn(resumeBotRun);
   const [open, setOpen] = useState(false);
   const [shot, setShot] = useState<string | null>(null);
+  const [answer, setAnswer] = useState("");
+  const [sending, setSending] = useState(false);
+
+  async function submitAnswer() {
+    if (!answer.trim()) return;
+    setSending(true);
+    try {
+      await resume({ data: { id: run.id, value: answer.trim() } });
+      toast({ title: "Antwort gespeichert", description: "Der Bot macht an der Pausenstelle weiter." });
+      setAnswer("");
+      onResumed?.();
+    } catch (e: any) {
+      toast({ title: "Fehler", description: e.message, variant: "destructive" });
+    } finally {
+      setSending(false);
+    }
+  }
+
 
   const claimed = !!run.claimed_by;
 
