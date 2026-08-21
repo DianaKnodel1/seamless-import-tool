@@ -136,15 +136,36 @@ export default function FloatingChat() {
           triggerNotification({ senderName: leader.name || "Teamleiter", body: msg.message });
         }
       })
-      .on("broadcast", { event: "typing" }, (payload) => {
-        if (payload.payload.userId !== user.id) {
-          setLeaderTyping(true);
-          setTimeout(() => setLeaderTyping(false), 3000);
-        }
-      })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [user, teamLeaderId, open, leader.name, triggerNotification]);
+
+  // Tipp-Indikator: eigener Kanal je Gesprächspaar – identisch zur Admin-Ansicht.
+  // Vorher lief das über einen globalen Kanal, dadurch sah jeder Mitarbeiter
+  // „tippt gerade…", sobald irgendjemand anderes schrieb.
+  useEffect(() => {
+    if (!user || !recipientId) {
+      setLeaderTyping(false);
+      return;
+    }
+    const channelName = `typing-${[user.id, recipientId].sort().join("-")}`;
+    const channel = supabase.channel(channelName, { config: { broadcast: { self: false } } });
+    channel
+      .on("broadcast", { event: "typing" }, (payload) => {
+        if (payload.payload?.userId !== recipientId) return;
+        setLeaderTyping(true);
+        if (typingTimeoutRef.current) window.clearTimeout(typingTimeoutRef.current);
+        typingTimeoutRef.current = window.setTimeout(() => setLeaderTyping(false), 3000);
+      })
+      .subscribe();
+    typingChannelRef.current = channel;
+    return () => {
+      if (typingTimeoutRef.current) window.clearTimeout(typingTimeoutRef.current);
+      supabase.removeChannel(channel);
+      typingChannelRef.current = null;
+      setLeaderTyping(false);
+    };
+  }, [user, recipientId]);
 
   /**
    * Lädt die NEUESTEN Nachrichten (absteigend abfragen, danach chronologisch
