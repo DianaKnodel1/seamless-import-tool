@@ -26,6 +26,16 @@ interface ChatMessage {
   attachment_type?: string | null;
 }
 
+function mergeChatMessages(current: ChatMessage[], incoming: ChatMessage[]) {
+  const byId = new Map(current.map((message) => [message.id, message]));
+  for (const message of incoming) {
+    if (!isInternalAdminNote(message)) byId.set(message.id, message);
+  }
+  return Array.from(byId.values()).sort(
+    (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+  );
+}
+
 // Interne Admin-/KI-Notizen werden im Mitarbeiter-Chat ausgeblendet (clientseitig,
 // damit keine normale Nachricht durch serverseitige Filter verloren geht).
 function isInternalAdminNote(msg: ChatMessage) {
@@ -94,10 +104,17 @@ export default function FloatingChat() {
   const typingChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const typingTimeoutRef = useRef<number | null>(null);
   const typingSentAtRef = useRef(0);
+  const openRef = useRef(false);
+  const teamLeaderIdRef = useRef<string | null>(null);
+  const leaderNameRef = useRef(leader.name);
   const isOnChatPage = location.pathname.includes("/chat");
   const recipientId = teamLeaderId ?? fallbackPartnerId;
 
   const { trigger: triggerNotification } = useChatNotifications({ unread, enabled: true });
+
+  useEffect(() => { openRef.current = open; }, [open]);
+  useEffect(() => { teamLeaderIdRef.current = teamLeaderId; }, [teamLeaderId]);
+  useEffect(() => { leaderNameRef.current = leader.name; }, [leader.name]);
 
   useEffect(() => {
     if (!user || isOnChatPage) return;
@@ -115,8 +132,19 @@ export default function FloatingChat() {
 
   useEffect(() => {
     if (!user) return;
+    const syncLatest = async () => {
+      const { data, error } = await supabase
+        .from("chat_messages")
+        .select("*")
+        .or(`sender_id.eq.${user.id},receiver_id.eq.${user.id}`)
+        .order("created_at", { ascending: false })
+        .limit(PAGE_SIZE);
+      if (!error && data) {
+        setHumanMessages((prev) => mergeChatMessages(prev, (data as ChatMessage[]).slice().reverse()));
+      }
+    };
     const channel = supabase
-      .channel("floating-chat-main")
+      .channel(`floating-chat-${user.id}`)
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "chat_messages" }, (payload) => {
         const msg = payload.new as ChatMessage;
         const isFromMe = msg.sender_id === user.id;
@@ -126,22 +154,36 @@ export default function FloatingChat() {
         if (isInternalAdminNote(msg)) return;
 
         // Immer in den Verlauf aufnehmen (auch wenn zu), damit nichts verloren geht.
-        setHumanMessages((prev) => (prev.some((m) => m.id === msg.id) ? prev : [...prev, msg]));
-        if (isForMe && !teamLeaderId) setFallbackPartnerId(msg.sender_id);
+        setHumanMessages((prev) => mergeChatMessages(prev, [msg]));
+        if (isForMe && !teamLeaderIdRef.current) setFallbackPartnerId(msg.sender_id);
 
-        if (open) {
+        if (openRef.current) {
           if (isForMe) {
             supabase.from("chat_messages").update({ read: true } as any).eq("id", msg.id).then();
           }
         } else if (isForMe) {
           setUnread((u) => u + 1);
           setHasNewMessage(true);
-          triggerNotification({ senderName: leader.name || "Teamleiter", body: msg.message });
+          triggerNotification({ senderName: leaderNameRef.current || "Teamleiter", body: msg.message });
         }
       })
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, [user, teamLeaderId, open, leader.name, triggerNotification]);
+      .subscribe((status) => {
+        if (status === "SUBSCRIBED") void syncLatest();
+        if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+          console.error(`[Chat Realtime] Floating-Chat-Verbindung: ${status}`);
+        }
+      });
+    const syncWhenVisible = () => {
+      if (document.visibilityState === "visible") void syncLatest();
+    };
+    document.addEventListener("visibilitychange", syncWhenVisible);
+    window.addEventListener("online", syncWhenVisible);
+    return () => {
+      document.removeEventListener("visibilitychange", syncWhenVisible);
+      window.removeEventListener("online", syncWhenVisible);
+      supabase.removeChannel(channel);
+    };
+  }, [user, triggerNotification]);
 
   // Tipp-Indikator: eigener Kanal je Gesprächspaar – identisch zur Admin-Ansicht.
   // Vorher lief das über einen globalen Kanal, dadurch sah jeder Mitarbeiter
@@ -206,13 +248,7 @@ export default function FloatingChat() {
     const lastIncoming = rows.find((m) => m.receiver_id === user.id); // absteigend → erster = neuester
     if (lastIncoming) setFallbackPartnerId(lastIncoming.sender_id);
     // Verlauf zusammenführen statt ersetzen – nichts geht verloren.
-    setHumanMessages((prev) => {
-      const map = new Map<string, ChatMessage>();
-      for (const m of [...prev, ...rows]) map.set(m.id, m);
-      return Array.from(map.values()).sort(
-        (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
-      );
-    });
+    setHumanMessages((prev) => mergeChatMessages(prev, rows));
     if (before) return;
     void supabase
       .from("chat_messages")
@@ -241,16 +277,19 @@ export default function FloatingChat() {
     broadcastTyping("");
     setSending(true);
     try {
-      const { error } = await supabase.from("chat_messages").insert({
+      const { data: inserted, error } = await supabase.from("chat_messages").insert({
         sender_id: user.id,
         receiver_id: recipientId,
         message: text || (attachment ? `📎 ${attachment.name}` : ""),
         attachment_url: attachment?.url ?? null,
         attachment_name: attachment?.name ?? null,
         attachment_type: attachment?.type ?? null,
-      } as any);
-      if (error) throw error;
+      } as any).select("*").single();
+      if (error || !inserted) throw error ?? new Error("Nachricht konnte nicht gespeichert werden.");
+      setHumanMessages((prev) => mergeChatMessages(prev, [inserted as ChatMessage]));
     } catch (e: any) {
+      setNewMessage(text);
+      setPendingAttachment(attachment);
       toast({ title: "Fehler", description: e?.message ?? "Nachricht konnte nicht gesendet werden.", variant: "destructive" });
     } finally {
       setSending(false);
