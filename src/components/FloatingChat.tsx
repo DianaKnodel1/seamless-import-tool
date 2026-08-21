@@ -142,17 +142,26 @@ export default function FloatingChat() {
     return () => { supabase.removeChannel(channel); };
   }, [user, teamLeaderId, open, leader.name, triggerNotification]);
 
-  const loadHistory = async () => {
+  /**
+   * Lädt die NEUESTEN Nachrichten (absteigend abfragen, danach chronologisch
+   * sortieren). Vorher wurden die 200 ältesten geladen – bei langem Verlauf
+   * kamen neue Nachrichten nach einem Reload nie an.
+   */
+  const loadHistory = async (before?: string) => {
     if (!user) return;
     setLoadError(null);
-    // Kompletter Verlauf des Mitarbeiters – unabhängig davon, welche
-    // Teamleiter-ID im Profil steht (ein Admin-Konto, viele Anzeigenamen).
-    const { data, error } = await supabase
+    if (before) setLoadingOlder(true);
+
+    let query = supabase
       .from("chat_messages")
       .select("*")
       .or(`sender_id.eq.${user.id},receiver_id.eq.${user.id}`)
-      .order("created_at", { ascending: true })
-      .limit(200);
+      .order("created_at", { ascending: false })
+      .limit(PAGE_SIZE);
+    if (before) query = query.lt("created_at", before);
+
+    const { data, error } = await query;
+    if (before) setLoadingOlder(false);
 
     if (error) {
       console.error("Chat-Verlauf konnte nicht geladen werden:", error);
@@ -161,7 +170,8 @@ export default function FloatingChat() {
     }
 
     const rows = ((data ?? []) as ChatMessage[]).filter((m) => !isInternalAdminNote(m));
-    const lastIncoming = [...rows].reverse().find((m) => m.receiver_id === user.id);
+    setHasMore((data ?? []).length === PAGE_SIZE);
+    const lastIncoming = rows.find((m) => m.receiver_id === user.id); // absteigend → erster = neuester
     if (lastIncoming) setFallbackPartnerId(lastIncoming.sender_id);
     // Verlauf zusammenführen statt ersetzen – nichts geht verloren.
     setHumanMessages((prev) => {
@@ -171,6 +181,7 @@ export default function FloatingChat() {
         (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
       );
     });
+    if (before) return;
     void supabase
       .from("chat_messages")
       .update({ read: true } as any)
