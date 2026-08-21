@@ -79,7 +79,7 @@ export function BotRecorderPanel({ profiles, onSaved }: Props) {
           ...(target.profile ? { id: target.profile.id } : {}),
           name: target.profile?.name ?? target.recName,
           provider_key: target.profile?.provider_key ??
-            target.recName.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "").slice(0, 40) || "aufnahme",
+            (target.recName.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "").slice(0, 40) || "aufnahme"),
           start_url: target.profile?.start_url ?? String(first?.value ?? startUrl ?? "https://example.com"),
           description: "Aus Browser-Aufnahme erstellt.",
           handoff_note: "",
