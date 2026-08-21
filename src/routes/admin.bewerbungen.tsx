@@ -72,12 +72,15 @@ const PHASE_COLOR: Record<Phase, string> = {
   mitarbeiter_aktiv: "bg-primary text-primary-foreground",
 };
 
-function computePhase(a: any, sched: Date | null, prof: ProfileInfo, bookingStatusRaw?: string | null): Phase {
+type PhaseResult = { phase: Phase; reason: string };
+
+function computePhase(a: any, sched: Date | null, prof: ProfileInfo, bookingStatusRaw?: string | null): PhaseResult {
+  const R = (phase: Phase, reason: string): PhaseResult => ({ phase, reason });
   if (prof) {
-    if (prof.status === "angenommen") return "mitarbeiter_aktiv";
-    if (prof.status === "abgelehnt") return "abgelehnt";
-    if (prof.onboarding === "abgeschlossen") return "onboarding_komplett";
-    return "registriert";
+    if (prof.status === "angenommen") return R("mitarbeiter_aktiv", "Profil: status = angenommen");
+    if (prof.status === "abgelehnt") return R("abgelehnt", "Profil: status = abgelehnt");
+    if (prof.onboarding === "abgeschlossen") return R("onboarding_komplett", "Profil: Onboarding abgeschlossen");
+    return R("registriert", "Profil vorhanden (registriert)");
   }
   // Echte Spalten der Bewerbung auswerten (es gibt kein Feld "phase"):
   // status = Entscheidung, booking_status = Termin-Zustand,
@@ -96,8 +99,8 @@ function computePhase(a: any, sched: Date | null, prof: ProfileInfo, bookingStat
   // Wer nicht erschienen ist, hat das Interview nie geführt – also kann es dazu
   // weder eine Empfehlung noch eine Zusage geben. "Nicht erschienen" und
   // "Abgesagt" gewinnen daher immer, auch gegen status/interview_recommendation.
-  if (isNoShow) return "no_show";
-  if (isCancelled) return "abgesagt";
+  if (isNoShow) return R("no_show", "Termin-Status = no_show (aus Buchung/Bewerbung)");
+  if (isCancelled) return R("abgesagt", "Termin-Status = cancelled/storniert");
 
   // Sicherung, falls die DB-Automatik (Cron) nicht läuft: Termin liegt mehr als
   // 45 Minuten zurück, es wurde nie ein Interview begonnen und es gibt keine
@@ -106,26 +109,29 @@ function computePhase(a: any, sched: Date | null, prof: ProfileInfo, bookingStat
     || rec === "reject" || rec === "invite";
   if (sched && !interviewTouched && !decided
       && Date.now() > sched.getTime() + 45 * 60 * 1000) {
-    return "no_show";
+    return R("no_show", "Automatik-Regel: Termin >45 Min vorbei, kein Interview, keine Entscheidung");
   }
 
-  if (status === "abgelehnt") return "abgelehnt";
-  if (rec === "reject") return "abgelehnt";
-  if (status === "akzeptiert" || status === "angenommen" || rec === "invite") return "angenommen";
+  if (status === "abgelehnt") return R("abgelehnt", "Bewerbung: status = abgelehnt");
+  if (rec === "reject") return R("abgelehnt", "Interview-Empfehlung = reject");
+  if (status === "akzeptiert" || status === "angenommen" || rec === "invite") {
+    return R("angenommen", `Zusage (status=${status || "—"}, empfehlung=${rec || "—"})`);
+  }
 
-  if (interviewTouched) return "auswertung_fehler";
+  if (interviewTouched) return R("auswertung_fehler", "Interview begonnen/beendet, aber keine Auswertung");
 
   if (sched) {
     const now = Date.now();
     const start = sched.getTime();
     const end = start + 60 * 60 * 1000;
-    if (now > end) return "auswertung_fehler";
-    if (now > start) return "interview_laeuft";
-    return "termin_gebucht";
+    if (now > end) return R("auswertung_fehler", "Terminfenster vorbei, kein Ergebnis");
+    if (now > start) return R("interview_laeuft", "Termin läuft gerade");
+    return R("termin_gebucht", "Termin in der Zukunft gebucht");
   }
 
-  return "termin_offen";
+  return R("termin_offen", "Kein Termin gebucht");
 }
+
 
 
 function phaseToStages(p: Phase): Stage[] {
@@ -288,7 +294,7 @@ function AdminBewerbungenPage() {
       } : null;
       const bk = bookingByApp.get(a.id) ?? null;
       const sched = bk?.date ?? (a.scheduled_at ? new Date(a.scheduled_at) : null);
-      const phase = computePhase(a, sched, prof, bk?.status ?? null);
+      const { phase, reason: phaseReason } = computePhase(a, sched, prof, bk?.status ?? null);
 
       return {
         id: a.id,
@@ -296,6 +302,7 @@ function AdminBewerbungenPage() {
         email: a.email || "—",
         phone: a.phone || "—",
         phase,
+        phaseReason,
         tenantId: a.tenant_id ?? null,
         archived: a.is_archived === true,
         lastActivity: a.created_at,
@@ -481,6 +488,29 @@ function AdminBewerbungenPage() {
           );
         })}
       </div>
+
+      {/* Diagnose: zeigt, WARUM Bewerber in einer Phase gelandet sind. */}
+      <details className="rounded-lg border bg-muted/20 px-3 py-2">
+        <summary className="cursor-pointer text-xs font-medium text-muted-foreground">
+          Diagnose: Warum steht wer in welcher Phase? ({filtered.length} im aktuellen Filter)
+        </summary>
+        <div className="mt-2 space-y-1">
+          {Object.entries(
+            filtered.reduce<Record<string, number>>((acc, r) => {
+              const key = `${r.phase} — ${r.phaseReason}`;
+              acc[key] = (acc[key] || 0) + 1;
+              return acc;
+            }, {}),
+          )
+            .sort((a, b) => b[1] - a[1])
+            .map(([key, n]) => (
+              <div key={key} className="flex items-start justify-between gap-3 text-[11px]">
+                <span className="text-muted-foreground">{key}</span>
+                <span className="tabular-nums font-medium">{n}</span>
+              </div>
+            ))}
+        </div>
+      </details>
 
       {selected.size > 0 && (
         <div className="sticky top-2 z-10 flex items-center justify-between gap-3 rounded-lg border border-destructive/40 bg-destructive/5 px-4 py-2 shadow-sm">
