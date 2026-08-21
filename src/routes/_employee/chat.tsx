@@ -171,6 +171,43 @@ function ChatPage() {
     return () => { supabase.removeChannel(channel); };
   }, [user, teamLeaderId]);
 
+  // Tipp-Indikator pro Gesprächspaar (gleicher Kanalname wie in der Admin-Ansicht).
+  useEffect(() => {
+    if (!user || !teamLeaderId) {
+      setIsTyping(false);
+      return;
+    }
+    const channelName = `typing-${[user.id, teamLeaderId].sort().join("-")}`;
+    const channel = supabase.channel(channelName, { config: { broadcast: { self: false } } });
+    channel
+      .on("broadcast", { event: "typing" }, (payload) => {
+        if (payload.payload?.userId !== teamLeaderId) return;
+        setIsTyping(true);
+        if (typingTimeoutRef.current) window.clearTimeout(typingTimeoutRef.current);
+        typingTimeoutRef.current = window.setTimeout(() => setIsTyping(false), 3000);
+      })
+      .subscribe();
+    typingChannelRef.current = channel;
+    return () => {
+      if (typingTimeoutRef.current) window.clearTimeout(typingTimeoutRef.current);
+      supabase.removeChannel(channel);
+      typingChannelRef.current = null;
+      setIsTyping(false);
+    };
+  }, [user, teamLeaderId]);
+
+  const broadcastTyping = () => {
+    if (!user || !typingChannelRef.current) return;
+    const now = Date.now();
+    if (now - typingSentAtRef.current < 1200) return;
+    typingSentAtRef.current = now;
+    void typingChannelRef.current.send({
+      type: "broadcast",
+      event: "typing",
+      payload: { userId: user.id },
+    });
+  };
+
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isTyping]);
