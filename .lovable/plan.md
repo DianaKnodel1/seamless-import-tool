@@ -17,3 +17,14 @@ auf der Mitarbeiter-Seite nicht.
 Fix: neueste 200 laden (absteigend abfragen, fuer die Anzeige chronologisch
 sortieren) - in beiden Mitarbeiter-Ansichten, plus Button "Aeltere Nachrichten
 laden" fuer den kompletten Verlauf.
+
+## Fehler 2: Nachrichten mit "Hallo"/"Willkommen" gelten als Systemmeldung
+Auf der Mitarbeiter-Chatseite gilt jede Teamleiter-Nachricht, die mit
+"Hallo", "Willkommen" oder einem der Emoji-Praefixe beginnt, als
+Systemmeldung und wird anders (unauffaellig, mittig) dargestellt. Deine
+echten Antworten beginnen oft mit "Hallo Marcel, ..." - sie wirken dadurch
+wie Systemtext und werden leicht uebersehen.
+
+Fix: nur noch echte, vom System erzeugte Nachrichten so kennzeichnen
+(Markierung an der Nachricht statt Raten am Text). Bis das Feld existiert:
+Praefixe "Hallo" und "Willkommen" aus der Erkennung entfernen.
