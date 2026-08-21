@@ -46,3 +46,6 @@ einem Kanal pro Unterhaltung, den das Chat-Fenster nicht abonniert.
 Fix: beide Seiten nutzen denselben Kanal pro Gespraechspaar, der Empfaenger
 prueft die Absender-ID, und der Hinweis erlischt nach 3 Sekunden ohne neues
 Signal.
+
+## Technische Details
+- src/components/FloatingChat.tsx: Verlauf absteigend + Limit, danach sortieren; Typing-Kanal typing-<idA>-<idB> abonnieren und senden.
