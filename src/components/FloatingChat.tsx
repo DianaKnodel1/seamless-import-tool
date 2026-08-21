@@ -91,6 +91,9 @@ export default function FloatingChat() {
   const [fallbackPartnerId, setFallbackPartnerId] = useState<string | null>(null);
 
   const bottomRef = useRef<HTMLDivElement>(null);
+  const typingChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const typingTimeoutRef = useRef<number | null>(null);
+  const typingSentAtRef = useRef(0);
   const isOnChatPage = location.pathname.includes("/chat");
   const recipientId = teamLeaderId ?? fallbackPartnerId;
 
