@@ -37,3 +37,6 @@ t
 ## Fehler 3: Tipp-Indikator zeigt fremdes Tippen
 Das Chat-Fenster hoert auf einen globalen Kanal und zeigt "tippt gerade
 live...", sobald ir
+
+## Fehler 3: Tipp-Indikator
+Das Chat-Fenster hoert auf einen globalen Kanal.
