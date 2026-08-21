@@ -85,8 +85,11 @@ const SCRIPT = String.raw`(function () {
     step.t = Date.now();
     step.url = location.href;
     buffer.push(step);
+    all.push(step);
+    try { sessionStorage.setItem("__botRecSteps", JSON.stringify(all).slice(0, 400000)); } catch (e) {}
     paint();
   }
+
 
   function onClick(e) {
     var el = e.target && e.target.closest
