@@ -141,9 +141,12 @@ function AdminChatPage() {
   }, [user]);
 
   const loadConversations = async () => {
-    const [profilesRes, convsRes, msgsRes, tenantsRes, rolesRes] = await Promise.all([
+    const [profilesRes, convsRes, aggRes, msgsRes, tenantsRes, rolesRes] = await Promise.all([
       supabase.from("profiles").select("user_id, full_name, tenant_id, team_leader_id"),
       supabase.from("chat_conversations").select("user_id, status, escalated_at, admin_hidden_at, admin_unread, admin_note"),
+      // Serverseitige Aggregation über ALLE Nachrichten (kein Fenster-Limit).
+      (supabase as any).rpc("list_chat_conversations"),
+      // Rückfall, solange die SQL-Funktion auf der Datenbank noch fehlt.
       supabase
         .from("chat_messages")
         .select("sender_id, receiver_id, message, read, created_at")
@@ -171,24 +174,38 @@ function AdminChatPage() {
 
     type Agg = { lastMessage: string; lastAt: string; unread: number; lastFromEmployeeAt: string | null };
     const agg = new Map<string, Agg>();
-    // msgs are ordered DESC → first entry per partner is the newest
-    for (const m of (msgsRes.data ?? []) as any[]) {
-      if (isInternalAdminNote(m.message)) continue;
-      // Gegenüber = die Seite, die kein Admin-/Staff-Konto ist
-      const partnerId = adminIds.has(m.sender_id) ? m.receiver_id : m.sender_id;
-      if (!partnerId || adminIds.has(partnerId)) continue;
-      if (!profileMap.has(partnerId)) continue;
-      let entry = agg.get(partnerId);
-      if (!entry) {
-        entry = {
-          lastMessage: m.message,
-          lastAt: m.created_at,
-          unread: 0,
-          lastFromEmployeeAt: m.sender_id === partnerId ? m.created_at : null,
-        };
-        agg.set(partnerId, entry);
+
+    const aggRows = (aggRes as any)?.error ? null : ((aggRes as any)?.data as any[] | null);
+    if (aggRows && aggRows.length) {
+      for (const r of aggRows) {
+        if (!r.partner_id || !profileMap.has(r.partner_id)) continue;
+        agg.set(r.partner_id, {
+          lastMessage: r.last_message ?? "",
+          lastAt: r.last_at,
+          unread: Number(r.unread ?? 0),
+          lastFromEmployeeAt: r.last_from_partner_at ?? null,
+        });
       }
-      if (m.sender_id === partnerId && !m.read) entry.unread += 1;
+    } else {
+      // msgs are ordered DESC → first entry per partner is the newest
+      for (const m of (msgsRes.data ?? []) as any[]) {
+        if (isInternalAdminNote(m.message)) continue;
+        // Gegenüber = die Seite, die kein Admin-/Staff-Konto ist
+        const partnerId = adminIds.has(m.sender_id) ? m.receiver_id : m.sender_id;
+        if (!partnerId || adminIds.has(partnerId)) continue;
+        if (!profileMap.has(partnerId)) continue;
+        let entry = agg.get(partnerId);
+        if (!entry) {
+          entry = {
+            lastMessage: m.message,
+            lastAt: m.created_at,
+            unread: 0,
+            lastFromEmployeeAt: m.sender_id === partnerId ? m.created_at : null,
+          };
+          agg.set(partnerId, entry);
+        }
+        if (m.sender_id === partnerId && !m.read) entry.unread += 1;
+      }
     }
 
     const list: Conversation[] = [];
