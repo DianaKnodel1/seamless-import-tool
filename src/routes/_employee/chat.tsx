@@ -190,8 +190,12 @@ function ChatPage() {
     channel
       .on("broadcast", { event: "typing" }, (payload) => {
         if (payload.payload?.userId !== teamLeaderId) return;
-        setIsTyping(true);
         if (typingTimeoutRef.current) window.clearTimeout(typingTimeoutRef.current);
+        if (payload.payload?.typing === false) {
+          setIsTyping(false);
+          return;
+        }
+        setIsTyping(true);
         typingTimeoutRef.current = window.setTimeout(() => setIsTyping(false), 3000);
       })
       .subscribe();
@@ -204,15 +208,25 @@ function ChatPage() {
     };
   }, [user, teamLeaderId]);
 
-  const broadcastTyping = () => {
+  // Leert der Nutzer das Feld oder sendet ab, geht sofort ein
+  // "tippt nicht mehr" raus – kein Flackern, kein Hängenbleiben.
+  const broadcastTyping = (text: string) => {
     if (!user || !typingChannelRef.current) return;
+    const typing = text.trim().length > 0;
+    if (!typing) {
+      typingSentAtRef.current = 0;
+      void typingChannelRef.current.send({
+        type: "broadcast", event: "typing", payload: { userId: user.id, typing: false },
+      });
+      return;
+    }
     const now = Date.now();
     if (now - typingSentAtRef.current < 1200) return;
     typingSentAtRef.current = now;
     void typingChannelRef.current.send({
       type: "broadcast",
       event: "typing",
-      payload: { userId: user.id },
+      payload: { userId: user.id, typing: true },
     });
   };
 
