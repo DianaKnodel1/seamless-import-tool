@@ -113,3 +113,42 @@ export const stopBotRecording = createServerFn({ method: "POST" })
     if (error) throw new Error(error.message);
     return { ok: true };
   });
+
+const RawStep = z.object({
+  t: z.number(),
+  kind: z.enum(["click", "input", "select", "check", "submit", "navigate"]),
+  url: z.string().max(2000).optional().default(""),
+  selectors: z.array(z.string().max(400)).max(6).optional(),
+  label: z.string().max(120).optional(),
+  tag: z.string().max(20).optional(),
+  type: z.string().max(30).optional(),
+  name: z.string().max(120).optional(),
+  guess: z.string().max(40).optional(),
+  sample: z.string().max(60).optional(),
+  checked: z.boolean().optional(),
+});
+
+/**
+ * Notfall-Übernahme: Wenn die fremde Seite das Hochladen blockiert (CSP),
+ * kann der Admin den im Recorder exportierten JSON-Text hier einfügen.
+ */
+export const importBotRecordingSteps = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((i: unknown) =>
+    z.object({ id: z.string().uuid(), json: z.string().min(2).max(500000) }).parse(i),
+  )
+  .handler(async ({ data, context }): Promise<{ ok: boolean; count: number }> => {
+    await requireAdmin(context);
+    let parsed: unknown;
+    try { parsed = JSON.parse(data.json); } catch (e: any) {
+      throw new Error(`JSON ungültig: ${e.message}`);
+    }
+    const list = Array.isArray(parsed) ? parsed : (parsed as any)?.steps;
+    const steps = z.array(RawStep).max(2000).parse(list);
+    const db = context.supabase as any;
+    const { error } = await db.from("bot_recordings")
+      .update({ raw_steps: steps, status: "stopped", updated_at: new Date().toISOString() })
+      .eq("id", data.id);
+    if (error) throw new Error(error.message);
+    return { ok: true, count: steps.length };
+  });
