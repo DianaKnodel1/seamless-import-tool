@@ -119,8 +119,32 @@ export function BotHandoffCard({
         </div>
       </div>
 
+      {run.pending_var && (
+        <div className="mt-2 ml-5 rounded-lg border border-status-info/40 bg-status-info/5 p-2 space-y-1.5">
+          <p className="font-medium text-foreground">
+            {run.pending_prompt || `Bitte "${run.pending_var}" eingeben`}
+          </p>
+          <div className="flex gap-1.5">
+            <Input
+              value={answer}
+              onChange={(e) => setAnswer(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") submitAnswer(); }}
+              placeholder={run.pending_var === "verify_url" ? "https://… (Link aus der E-Mail)" : "Wert eingeben"}
+              className="h-8 text-xs"
+            />
+            <Button size="sm" className="h-8 text-xs" disabled={sending || !answer.trim()} onClick={submitAnswer}>
+              {sending ? "…" : "Weiter"}
+            </Button>
+          </div>
+          <p className="text-muted-foreground">
+            Der Bot setzt danach automatisch ab Schritt {(run.resume_step ?? 0) + 1} fort – eingeloggt, ohne Neustart.
+          </p>
+        </div>
+      )}
+
       {open && (
         <div className="mt-3 space-y-3 pl-5">
+
           <div className="flex flex-wrap gap-2">
             {run.handoff_url && (
               <Button
