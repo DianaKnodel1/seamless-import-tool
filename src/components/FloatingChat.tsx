@@ -82,6 +82,8 @@ export default function FloatingChat() {
   const [leaderTyping, setLeaderTyping] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [pendingAttachment, setPendingAttachment] = useState<ChatAttachment | null>(null);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingOlder, setLoadingOlder] = useState(false);
   // Fallback-Empfänger: letzter Absender, der mir geschrieben hat (falls kein
   // team_leader_id im Profil hinterlegt ist).
   const [fallbackPartnerId, setFallbackPartnerId] = useState<string | null>(null);
