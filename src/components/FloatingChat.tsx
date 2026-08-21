@@ -238,6 +238,7 @@ export default function FloatingChat() {
     const attachment = pendingAttachment;
     setNewMessage("");
     setPendingAttachment(null);
+    broadcastTyping("");
     setSending(true);
     try {
       const { error } = await supabase.from("chat_messages").insert({
@@ -385,7 +386,7 @@ export default function FloatingChat() {
               )}
               <Input
                 value={newMessage}
-                onChange={(e) => { setNewMessage(e.target.value); broadcastTyping(); }}
+                onChange={(e) => { setNewMessage(e.target.value); broadcastTyping(e.target.value); }}
                 onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
                 placeholder="Nachricht an Teamleiter…"
                 className="flex-1 h-10 rounded-xl text-sm border-border/60 focus-visible:ring-primary/20"
