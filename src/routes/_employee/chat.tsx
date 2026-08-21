@@ -476,7 +476,7 @@ function ChatPage() {
           <EmojiPicker onSelect={(e) => setNewMessage((m) => m + e)} />
           <Textarea
             value={newMessage}
-            onChange={(e) => { setNewMessage(e.target.value); broadcastTyping(); }}
+            onChange={(e) => { setNewMessage(e.target.value); broadcastTyping(e.target.value); }}
             onKeyDown={handleKeyDown}
             placeholder="Nachricht schreiben… (Shift + Enter = neue Zeile)"
             rows={3}
