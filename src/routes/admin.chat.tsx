@@ -516,6 +516,7 @@ function AdminChatPage() {
     attachment: ChatAttachment | null,
     shouldLogCorrection: boolean,
   ) => {
+    if (!user) return;
     setSending(true);
     const { data: inserted, error } = await supabase.from("chat_messages").insert({
       sender_id: user.id,
@@ -685,7 +686,10 @@ function AdminChatPage() {
         ));
       })
       .subscribe((status) => {
-        if (status === "SUBSCRIBED") void syncActiveConversation();
+        if (status === "SUBSCRIBED") {
+          console.info("[Chat Realtime] Admin verbunden");
+          void syncActiveConversation();
+        }
         if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
           console.error(`[Chat Realtime] Admin-Verbindung: ${status}`);
         }
@@ -695,9 +699,11 @@ function AdminChatPage() {
     };
     document.addEventListener("visibilitychange", syncWhenVisible);
     window.addEventListener("online", syncWhenVisible);
+    window.addEventListener("focus", syncWhenVisible);
     return () => {
       document.removeEventListener("visibilitychange", syncWhenVisible);
       window.removeEventListener("online", syncWhenVisible);
+      window.removeEventListener("focus", syncWhenVisible);
       supabase.removeChannel(channel);
     };
   }, [user, notifyChat]);

@@ -198,7 +198,10 @@ function ChatPage() {
         }
       })
       .subscribe((status) => {
-        if (status === "SUBSCRIBED") void syncLatest();
+        if (status === "SUBSCRIBED") {
+          console.info("[Chat Realtime] Mitarbeiter verbunden");
+          void syncLatest();
+        }
         if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
           console.error(`[Chat Realtime] Mitarbeiter-Verbindung: ${status}`);
         }
@@ -208,9 +211,11 @@ function ChatPage() {
     };
     document.addEventListener("visibilitychange", syncWhenVisible);
     window.addEventListener("online", syncWhenVisible);
+    window.addEventListener("focus", syncWhenVisible);
     return () => {
       document.removeEventListener("visibilitychange", syncWhenVisible);
       window.removeEventListener("online", syncWhenVisible);
+      window.removeEventListener("focus", syncWhenVisible);
       supabase.removeChannel(channel);
     };
   }, [user]);
@@ -278,6 +283,7 @@ function ChatPage() {
     text: string,
     attachment: ChatAttachment | null,
   ) => {
+    if (!user) return;
     setSending(true);
     const { data: inserted, error } = await supabase.from("chat_messages").insert({
       sender_id: user.id,

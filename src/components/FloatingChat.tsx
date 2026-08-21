@@ -169,7 +169,10 @@ export default function FloatingChat() {
         }
       })
       .subscribe((status) => {
-        if (status === "SUBSCRIBED") void syncLatest();
+        if (status === "SUBSCRIBED") {
+          console.info("[Chat Realtime] Floating-Chat verbunden");
+          void syncLatest();
+        }
         if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
           console.error(`[Chat Realtime] Floating-Chat-Verbindung: ${status}`);
         }
@@ -179,9 +182,11 @@ export default function FloatingChat() {
     };
     document.addEventListener("visibilitychange", syncWhenVisible);
     window.addEventListener("online", syncWhenVisible);
+    window.addEventListener("focus", syncWhenVisible);
     return () => {
       document.removeEventListener("visibilitychange", syncWhenVisible);
       window.removeEventListener("online", syncWhenVisible);
+      window.removeEventListener("focus", syncWhenVisible);
       supabase.removeChannel(channel);
     };
   }, [user, triggerNotification]);
@@ -275,6 +280,7 @@ export default function FloatingChat() {
     text: string,
     attachment: ChatAttachment | null,
   ) => {
+    if (!user) return;
     setSending(true);
     try {
       const { data: inserted, error } = await supabase.from("chat_messages").insert({
