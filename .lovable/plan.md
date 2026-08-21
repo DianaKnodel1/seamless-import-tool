@@ -49,3 +49,6 @@ Signal.
 
 ## Technische Details
 - src/components/FloatingChat.tsx: Verlauf absteigend + Limit, danach sortieren; Typing-Kanal typing-<idA>-<idB> abonnieren und senden.
+- src/routes/_employee/chat.tsx: gleiche Ladelogik, "Aeltere laden"-Button, SYSTEM_PREFIXES bereinigen.
+- src/routes/admin.chat.tsx: unveraendert, dient als Referenz fuer Kanalnamen.
+- Keine Migration noetig; Rollout ueber scripts/deploy.sh.
