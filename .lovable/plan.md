@@ -40,3 +40,4 @@ live...", sobald ir
 
 ## Fehler 3: Tipp-Indikator
 Das Chat-Fenster hoert auf einen globalen Kanal.
+Sobald irgendein anderer Mitarbeiter tippt, sehen alle den Hinweis.
