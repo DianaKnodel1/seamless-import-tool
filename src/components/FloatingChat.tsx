@@ -33,6 +33,8 @@ function isInternalAdminNote(msg: ChatMessage) {
   return m.includes("[ESCALATE]") || m.includes("🤖 KI-Eskalation") || m.includes("🤖 KI Eskalation");
 }
 
+const PAGE_SIZE = 200;
+
 function formatTime(dateStr: string) {
   return new Date(dateStr).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
 }
