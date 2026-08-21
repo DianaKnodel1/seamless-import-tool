@@ -100,7 +100,18 @@ export function BotRecorderPanel({ profiles, onSaved }: Props) {
     onError: (e: any) => toast({ title: "Fehler", description: e.message, variant: "destructive" }),
   });
 
+  const importM = useMutation({
+    mutationFn: (v: { id: string; json: string }) => importSteps({ data: v }),
+    onSuccess: (r) => {
+      toast({ title: "Schritte übernommen", description: `${r.count} Ereignisse gespeichert.` });
+      setPasteFor(null); setPasteJson("");
+      qc.invalidateQueries({ queryKey: ["bot-recordings"] });
+    },
+    onError: (e: any) => toast({ title: "Fehler", description: e.message, variant: "destructive" }),
+  });
+
   const rows = listQ.data?.rows ?? [];
+
 
   return (
     <div className="space-y-4">
