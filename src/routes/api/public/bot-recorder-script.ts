@@ -146,20 +146,49 @@ const SCRIPT = String.raw`(function () {
       body: JSON.stringify({ token: token, steps: batch, final: !!final }),
       keepalive: true,
       mode: "cors",
-    }).catch(function () { /* offline – Schritte gehen verloren */ });
+    }).then(function (r) {
+      if (r && r.ok) { uploadOk++; } else { uploadFail++; }
+      paint();
+    }).catch(function () {
+      // Seite blockiert das Senden (CSP) – Schritte bleiben lokal, Export nutzen.
+      uploadFail++; paint();
+    });
   }
 
   var bar = document.createElement("div");
   bar.style.cssText = "position:fixed;z-index:2147483647;right:16px;bottom:16px;background:#111827;color:#fff;" +
     "font:13px/1.4 system-ui,sans-serif;padding:10px 12px;border-radius:10px;box-shadow:0 6px 24px rgba(0,0,0,.35);display:flex;gap:10px;align-items:center";
   var text = document.createElement("span");
+  var exportBtn = document.createElement("button");
+  exportBtn.textContent = "Kopieren";
+  exportBtn.style.cssText = "background:#374151;color:#fff;border:0;border-radius:6px;padding:5px 10px;cursor:pointer;font:inherit";
   var stopBtn = document.createElement("button");
   stopBtn.textContent = "Stopp";
   stopBtn.style.cssText = "background:#ef4444;color:#fff;border:0;border-radius:6px;padding:5px 10px;cursor:pointer;font:inherit";
-  bar.appendChild(text); bar.appendChild(stopBtn);
-  function paint() { text.textContent = "Aufnahme läuft · " + (sent + buffer.length) + " Schritte"; }
+  bar.appendChild(text); bar.appendChild(exportBtn); bar.appendChild(stopBtn);
+  function paint() {
+    var status = uploadFail > 0 && uploadOk === 0 ? " · Senden blockiert – „Kopieren“ nutzen" : "";
+    text.textContent = "Aufnahme läuft · " + all.length + " Schritte" + status;
+  }
+  exportBtn.addEventListener("click", function () {
+    var data = JSON.stringify(all);
+    var done = function () { exportBtn.textContent = "Kopiert!"; setTimeout(function () { exportBtn.textContent = "Kopieren"; }, 2000); };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(data).then(done, fallback);
+    } else { fallback(); }
+    function fallback() {
+      var ta = document.createElement("textarea");
+      ta.value = data;
+      ta.style.cssText = "position:fixed;z-index:2147483647;left:5vw;top:5vh;width:90vw;height:60vh";
+      document.documentElement.appendChild(ta);
+      ta.select();
+      try { document.execCommand("copy"); done(); } catch (e) {}
+      setTimeout(function () { ta.remove(); }, 15000);
+    }
+  });
   paint();
   document.documentElement.appendChild(bar);
+
 
   document.addEventListener("click", onClick, true);
   document.addEventListener("change", onChange, true);
