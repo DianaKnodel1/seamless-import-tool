@@ -253,8 +253,11 @@ export default function FloatingChat() {
   };
 
   const broadcastTyping = () => {
-    if (!user) return;
-    supabase.channel("floating-chat-main").send({
+    if (!user || !typingChannelRef.current) return;
+    const now = Date.now();
+    if (now - typingSentAtRef.current < 1200) return;
+    typingSentAtRef.current = now;
+    void typingChannelRef.current.send({
       type: "broadcast",
       event: "typing",
       payload: { userId: user.id },
