@@ -24,6 +24,7 @@ interface ChatMessage {
   attachment_url?: string | null;
   attachment_name?: string | null;
   attachment_type?: string | null;
+  delivery_status?: "sending" | "failed";
 }
 
 function mergeChatMessages(current: ChatMessage[], incoming: ChatMessage[]) {
@@ -268,32 +269,71 @@ export default function FloatingChat() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [humanMessages, leaderTyping]);
 
-  const sendMessage = async () => {
-    if ((!newMessage.trim() && !pendingAttachment) || !user || !recipientId) return;
-    const text = newMessage.trim();
-    const attachment = pendingAttachment;
-    setNewMessage("");
-    setPendingAttachment(null);
-    broadcastTyping("");
+  const persistMessage = async (
+    optimisticId: string,
+    targetId: string,
+    text: string,
+    attachment: ChatAttachment | null,
+  ) => {
     setSending(true);
     try {
       const { data: inserted, error } = await supabase.from("chat_messages").insert({
         sender_id: user.id,
-        receiver_id: recipientId,
+        receiver_id: targetId,
         message: text || (attachment ? `📎 ${attachment.name}` : ""),
         attachment_url: attachment?.url ?? null,
         attachment_name: attachment?.name ?? null,
         attachment_type: attachment?.type ?? null,
       } as any).select("*").single();
       if (error || !inserted) throw error ?? new Error("Nachricht konnte nicht gespeichert werden.");
-      setHumanMessages((prev) => mergeChatMessages(prev, [inserted as ChatMessage]));
+      setHumanMessages((prev) => mergeChatMessages(
+        prev.filter((message) => message.id !== optimisticId),
+        [inserted as ChatMessage],
+      ));
     } catch (e: any) {
-      setNewMessage(text);
-      setPendingAttachment(attachment);
+      setHumanMessages((prev) => prev.map((message) =>
+        message.id === optimisticId ? { ...message, delivery_status: "failed" } : message
+      ));
       toast({ title: "Fehler", description: e?.message ?? "Nachricht konnte nicht gesendet werden.", variant: "destructive" });
     } finally {
       setSending(false);
     }
+  };
+
+  const sendMessage = async () => {
+    if ((!newMessage.trim() && !pendingAttachment) || !user || !recipientId) return;
+    const text = newMessage.trim();
+    const attachment = pendingAttachment;
+    const optimisticId = `pending-${crypto.randomUUID()}`;
+    setHumanMessages((prev) => mergeChatMessages(prev, [{
+      id: optimisticId,
+      sender_id: user.id,
+      receiver_id: recipientId,
+      message: text || (attachment ? `📎 ${attachment.name}` : ""),
+      read: false,
+      created_at: new Date().toISOString(),
+      attachment_url: attachment?.url ?? null,
+      attachment_name: attachment?.name ?? null,
+      attachment_type: attachment?.type ?? null,
+      delivery_status: "sending",
+    }]));
+    setNewMessage("");
+    setPendingAttachment(null);
+    broadcastTyping("");
+    await persistMessage(optimisticId, recipientId, text, attachment);
+  };
+
+  const retryMessage = async (message: ChatMessage) => {
+    if (!user || message.delivery_status !== "failed") return;
+    setHumanMessages((prev) => prev.map((item) =>
+      item.id === message.id ? { ...item, delivery_status: "sending" } : item
+    ));
+    const attachment = message.attachment_url ? {
+      url: message.attachment_url,
+      name: message.attachment_name ?? "Anhang",
+      type: message.attachment_type ?? "application/octet-stream",
+    } : null;
+    await persistMessage(message.id, message.receiver_id, message.message, attachment);
   };
 
   // Explizites Stop-Signal, sobald das Feld leer ist oder abgesendet wurde.
@@ -390,7 +430,22 @@ export default function FloatingChat() {
                         type={msg.attachment_type}
                       />
                     )}
-                    <p className={cn("text-[9px] mt-1 opacity-50")}>{formatTime(msg.created_at)}</p>
+                    <p className="text-[9px] mt-1 opacity-50">
+                      {formatTime(msg.created_at)}
+                      {isMine && msg.delivery_status === "sending" && " · Wird gesendet…"}
+                      {isMine && msg.delivery_status === "failed" && " · Nicht gesendet"}
+                    </p>
+                    {isMine && msg.delivery_status === "failed" && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => void retryMessage(msg)}
+                        className="mt-1 h-6 px-2 text-[10px] text-primary-foreground hover:text-primary"
+                      >
+                        Erneut senden
+                      </Button>
+                    )}
                   </div>
                 </div>
               );
