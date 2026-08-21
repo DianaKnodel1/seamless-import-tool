@@ -226,7 +226,56 @@ export const claimBotRun = createServerFn({ method: "POST" })
   });
 
 
+/**
+ * Antwort auf eine Rückfrage des Bots (z. B. Verifizierungslink aus der Mail):
+ * Wert speichern und den Lauf ab der Pausenstelle wieder einreihen.
+ */
+export const resumeBotRun = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((i: unknown) =>
+    z.object({ id: z.string().uuid(), value: z.string().min(1).max(2000) }).parse(i))
+  .handler(async ({ data, context }): Promise<{ ok: boolean }> => {
+    await requireAdmin(context);
+    const db = context.supabase as any;
+    const { data: run, error: readErr } = await db
+      .from("bot_runs").select("run_vars, pending_var").eq("id", data.id).single();
+    if (readErr) throw new Error(readErr.message);
+    const key = String(run?.pending_var || "wert");
+    const run_vars = { ...(run?.run_vars ?? {}), [key]: data.value };
+    const { error } = await db.from("bot_runs").update({
+      run_vars,
+      pending_var: null,
+      pending_prompt: null,
+      status: "queued",
+      last_error: null,
+      handoff_reason: null,
+      finished_at: null,
+    }).eq("id", data.id);
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  });
+
+/** Lauf ab einem bestimmten Schritt erneut einreihen (nach Selektor-Korrektur). */
+export const restartBotRunFrom = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((i: unknown) =>
+    z.object({ id: z.string().uuid(), step: z.number().int().min(0).max(200) }).parse(i))
+  .handler(async ({ data, context }): Promise<{ ok: boolean }> => {
+    await requireAdmin(context);
+    const db = context.supabase as any;
+    const { error } = await db.from("bot_runs").update({
+      resume_step: data.step,
+      status: "queued",
+      last_error: null,
+      handoff_reason: null,
+      finished_at: null,
+    }).eq("id", data.id);
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  });
+
 const SetStatusInput = z.object({
+
   id: z.string().uuid(),
   status: z.enum(["queued", "waiting_admin", "done", "failed", "cancelled"]),
   note: z.string().max(1000).optional().default(""),
