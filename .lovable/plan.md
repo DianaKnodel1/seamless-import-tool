@@ -52,3 +52,6 @@ Signal.
 - src/routes/_employee/chat.tsx: gleiche Ladelogik, "Aeltere laden"-Button, SYSTEM_PREFIXES bereinigen.
 - src/routes/admin.chat.tsx: unveraendert, dient als Referenz fuer Kanalnamen.
 - Keine Migration noetig; Rollout ueber scripts/deploy.sh.
+
+## Gegenpruefung nach dem Fix
+Nachricht senden, Fenster schliessen, Seite neu laden - Verlauf bleibt vollstaendig; Tipp-Hinweis erscheint nur, wenn der Teamleiter wirklich tippt.
