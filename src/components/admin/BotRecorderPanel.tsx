@@ -35,6 +35,7 @@ export function BotRecorderPanel({ profiles, onSaved }: Props) {
   const build = useServerFn(buildBotRecordingSteps);
   const stop = useServerFn(stopBotRecording);
   const remove = useServerFn(deleteBotRecording);
+  const importSteps = useServerFn(importBotRecordingSteps);
   const saveProfile = useServerFn(saveBotProfile);
 
   const [name, setName] = useState("");
@@ -42,6 +43,9 @@ export function BotRecorderPanel({ profiles, onSaved }: Props) {
   const [token, setToken] = useState<string | null>(null);
   const [preview, setPreview] = useState<{ id: string; steps: CleanStep[]; notes: string[]; raw: number } | null>(null);
   const [json, setJson] = useState("");
+  const [pasteFor, setPasteFor] = useState<string | null>(null);
+  const [pasteJson, setPasteJson] = useState("");
+
 
   const listQ = useQuery({
     queryKey: ["bot-recordings"],
