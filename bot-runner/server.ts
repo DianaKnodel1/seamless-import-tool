@@ -545,6 +545,7 @@ async function runSteps(page: Page, run: Run, steps: Step[]) {
           status: "waiting_admin",
           handoff_reason: `Schritt ${i + 1} (${step.label ?? step.action}): ${err.message}`,
           handoff_url: pageUrl,
+          resume_step: i,
           ...(diag.screenshot_path ? { screenshot_path: diag.screenshot_path } : {}),
         }).eq("id", run.id);
         return "handoff" as const;
@@ -557,6 +558,7 @@ async function runSteps(page: Page, run: Run, steps: Step[]) {
           status: "waiting_admin",
           handoff_reason: `Schritt ${i + 1} (${step.label ?? step.action}) konnte nicht ausgeführt werden – Element "${selector}" war nicht erreichbar. Bitte Screenshot und Element-Vorschläge prüfen und ggf. den Selektor im Bot-Profil korrigieren.`,
           handoff_url: pageUrl,
+          resume_step: i,
           ...(diag.screenshot_path ? { screenshot_path: diag.screenshot_path } : {}),
         }).eq("id", run.id);
         return "handoff" as const;
