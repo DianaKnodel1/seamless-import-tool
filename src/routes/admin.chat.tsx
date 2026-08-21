@@ -122,6 +122,7 @@ function AdminChatPage() {
   const conversationsRef = useRef<Conversation[]>([]);
   // Verlauf: neueste Seite zuerst, ältere auf Wunsch nachladen.
   const [historyError, setHistoryError] = useState<string | null>(null);
+  const [activityError, setActivityError] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
 
