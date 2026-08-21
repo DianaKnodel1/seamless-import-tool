@@ -20,6 +20,11 @@ const SCRIPT = String.raw`(function () {
   var sent = 0;
   var uploadOk = 0;
   var uploadFail = 0;
+  try {
+    var prev = sessionStorage.getItem("__botRecSteps");
+    if (prev) all = JSON.parse(prev) || [];
+  } catch (e) { all = []; }
+
 
 
   function label(el) {
