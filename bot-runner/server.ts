@@ -626,7 +626,10 @@ async function processOne(): Promise<boolean> {
     locale: "de-DE",
     timezoneId: "Europe/Berlin",
     userAgent: USER_AGENT,
+    // Fortsetzung: gespeicherte Sitzung (Cookies) wiederherstellen.
+    ...(run.storage_state ? { storageState: run.storage_state as any } : {}),
   });
+
   context.setDefaultNavigationTimeout(NAV_TIMEOUT);
   context.setDefaultTimeout(NAV_TIMEOUT);
   if (TRACE_ENABLED) {
