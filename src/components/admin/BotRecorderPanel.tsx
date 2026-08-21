@@ -5,8 +5,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import {
   startBotRecording, listBotRecordings, buildBotRecordingSteps,
-  deleteBotRecording, stopBotRecording,
+  deleteBotRecording, stopBotRecording, importBotRecordingSteps,
 } from "@/lib/bot-recordings.functions";
+
 import { saveBotProfile, type BotProfileRow, type BotStep } from "@/lib/bots.functions";
 import type { CleanStep } from "@/lib/recording-clean";
 import { Button } from "@/components/ui/button";
