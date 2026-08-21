@@ -389,7 +389,53 @@ async function runSteps(page: Page, run: Run, steps: Step[]) {
           }
           break;
 
+        case "wait_for": {
+          const urlPat = step.url_pattern ? render(step.url_pattern, vars) : "";
+          const textPat = step.text_pattern ? render(step.text_pattern, vars) : "";
+          if (urlPat) {
+            await page.waitForURL(globToRe(urlPat), { timeout });
+          }
+          if (textPat) {
+            await page.getByText(new RegExp(escapeRe(textPat), "i")).first()
+              .waitFor({ state: "visible", timeout });
+          }
+          if (!urlPat && !textPat) await page.waitForLoadState("domcontentloaded", { timeout }).catch(() => undefined);
+          await dismissConsent(page);
+          break;
+        }
+
+        case "prompt": {
+          const key = (step.var_name || "wert").toLowerCase();
+          if (vars[key]) {
+            log = await appendLog(run.id, log, `Rückfrage "${key}" bereits beantwortet – weiter`);
+            break;
+          }
+          // Sitzung sichern, damit der Lauf später eingeloggt weitermachen kann.
+          let storage: unknown = null;
+          try { storage = await page.context().storageState(); } catch { /* egal */ }
+          const shot = await page.screenshot({ fullPage: false }).catch(() => null);
+          let shotPath: string | null = null;
+          if (shot) {
+            shotPath = `bot-runs/${run.id}/prompt-${Date.now()}.png`;
+            await db.storage.from("documents").upload(shotPath, shot, { contentType: "image/png" })
+              .catch(() => { shotPath = null; });
+          }
+          await db.from("bot_runs").update({
+            status: "waiting_admin",
+            pending_var: key,
+            pending_prompt: step.label ?? `Bitte "${key}" eingeben`,
+            resume_step: i,
+            handoff_reason: step.label ?? `Bitte "${key}" eingeben`,
+            handoff_url: page.url(),
+            storage_state: storage,
+            ...(shotPath ? { screenshot_path: shotPath } : {}),
+          }).eq("id", run.id);
+          await appendLog(run.id, log, `Rückfrage an Admin: ${step.label ?? key}`);
+          return "handoff" as const;
+        }
+
         case "screenshot": {
+
           const buf = await page.screenshot({ fullPage: false });
           const path = `bot-runs/${run.id}/${Date.now()}.png`;
           await db.storage.from("documents").upload(path, buf, { contentType: "image/png" });
