@@ -168,6 +168,11 @@ function ChatPage() {
           if (isInternalAdminNote(msg)) return;
           if (msg.receiver_id === user.id && !teamLeaderId) setTeamLeaderId(msg.sender_id);
           setMessages((prev) => prev.some((m) => m.id === msg.id) ? prev : [...prev, msg]);
+          // Chat ist offen → eingehende Nachricht sofort als gelesen markieren,
+          // sonst bleibt der Ungelesen-Zähler in der Admin-Ansicht stehen.
+          if (msg.receiver_id === user.id && !msg.read) {
+            void supabase.from("chat_messages").update({ read: true } as any).eq("id", msg.id);
+          }
         }
       })
       .subscribe();
