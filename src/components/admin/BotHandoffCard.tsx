@@ -1,9 +1,10 @@
 // Aufklappbare Karte für einen Lauf, der auf einen Admin wartet:
-// Screenshot, Seiten-Link, Lauf-Daten zum Kopieren und Diagnose.
+// Screenshot, Seiten-Link, Lauf-Daten zum Kopieren, Rückfrage-Eingabe und Diagnose.
 import { useEffect, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
-import { getBotArtifactUrl, type BotRunRow } from "@/lib/bots.functions";
+import { getBotArtifactUrl, resumeBotRun, type BotRunRow } from "@/lib/bots.functions";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { ChevronDown, ChevronRight, Copy, ExternalLink } from "lucide-react";
 
@@ -15,7 +16,9 @@ interface Props {
   onClaim: (release: boolean) => void;
   onDone: () => void;
   onDiagnose: () => void;
+  onResumed?: (() => void) | undefined;
 }
+
 
 const FIELD_LABEL: Record<string, string> = {
   first_name: "Vorname",
