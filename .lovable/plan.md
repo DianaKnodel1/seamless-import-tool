@@ -30,15 +30,6 @@ Fix: nur noch echte, vom System erzeugte Nachrichten so kennzeichnen
 Praefixe "Hallo" und "Willkommen" aus der Erkennung entfernen.
 
 ## Fehler 3: Tipp-Indikator zeigt fremdes Tippen
-Das Chat-Fenster hoert auf einen globalen Kanal "floating-chat-main" und
-zeigt "<Teamleiter> tippt gerade live..." sobald IRGENDEIN anderer Nutzer
-t
-
-## Fehler 3: Tipp-Indikator zeigt fremdes Tippen
-Das Chat-Fenster hoert auf einen globalen Kanal und zeigt "tippt gerade
-live...", sobald ir
-
-## Fehler 3: Tipp-Indikator
 Das Chat-Fenster hoert auf einen globalen Kanal.
 Sobald irgendein anderer Mitarbeiter tippt, sehen alle den Hinweis.
 Dein echtes Tippen erreicht sie dagegen nie: die Admin-Ansicht sendet auf
