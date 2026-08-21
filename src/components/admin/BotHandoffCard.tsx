@@ -1,9 +1,10 @@
 // Aufklappbare Karte für einen Lauf, der auf einen Admin wartet:
-// Screenshot, Seiten-Link, Lauf-Daten zum Kopieren und Diagnose.
+// Screenshot, Seiten-Link, Lauf-Daten zum Kopieren, Rückfrage-Eingabe und Diagnose.
 import { useEffect, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
-import { getBotArtifactUrl, type BotRunRow } from "@/lib/bots.functions";
+import { getBotArtifactUrl, resumeBotRun, type BotRunRow } from "@/lib/bots.functions";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { ChevronDown, ChevronRight, Copy, ExternalLink } from "lucide-react";
 
@@ -15,7 +16,9 @@ interface Props {
   onClaim: (release: boolean) => void;
   onDone: () => void;
   onDiagnose: () => void;
+  onResumed?: (() => void) | undefined;
 }
+
 
 const FIELD_LABEL: Record<string, string> = {
   first_name: "Vorname",
@@ -31,12 +34,31 @@ const FIELD_LABEL: Record<string, string> = {
 };
 
 export function BotHandoffCard({
-  run, profileName, employeeName, claimedByName, onClaim, onDone, onDiagnose,
+  run, profileName, employeeName, claimedByName, onClaim, onDone, onDiagnose, onResumed,
 }: Props) {
   const { toast } = useToast();
   const signUrl = useServerFn(getBotArtifactUrl);
+  const resume = useServerFn(resumeBotRun);
   const [open, setOpen] = useState(false);
   const [shot, setShot] = useState<string | null>(null);
+  const [answer, setAnswer] = useState("");
+  const [sending, setSending] = useState(false);
+
+  async function submitAnswer() {
+    if (!answer.trim()) return;
+    setSending(true);
+    try {
+      await resume({ data: { id: run.id, value: answer.trim() } });
+      toast({ title: "Antwort gespeichert", description: "Der Bot macht an der Pausenstelle weiter." });
+      setAnswer("");
+      onResumed?.();
+    } catch (e: any) {
+      toast({ title: "Fehler", description: e.message, variant: "destructive" });
+    } finally {
+      setSending(false);
+    }
+  }
+
 
   const claimed = !!run.claimed_by;
 
@@ -97,8 +119,32 @@ export function BotHandoffCard({
         </div>
       </div>
 
+      {run.pending_var && (
+        <div className="mt-2 ml-5 rounded-lg border border-status-info/40 bg-status-info/5 p-2 space-y-1.5">
+          <p className="font-medium text-foreground">
+            {run.pending_prompt || `Bitte "${run.pending_var}" eingeben`}
+          </p>
+          <div className="flex gap-1.5">
+            <Input
+              value={answer}
+              onChange={(e) => setAnswer(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") submitAnswer(); }}
+              placeholder={run.pending_var === "verify_url" ? "https://… (Link aus der E-Mail)" : "Wert eingeben"}
+              className="h-8 text-xs"
+            />
+            <Button size="sm" className="h-8 text-xs" disabled={sending || !answer.trim()} onClick={submitAnswer}>
+              {sending ? "…" : "Weiter"}
+            </Button>
+          </div>
+          <p className="text-muted-foreground">
+            Der Bot setzt danach automatisch ab Schritt {(run.resume_step ?? 0) + 1} fort – eingeloggt, ohne Neustart.
+          </p>
+        </div>
+      )}
+
       {open && (
         <div className="mt-3 space-y-3 pl-5">
+
           <div className="flex flex-wrap gap-2">
             {run.handoff_url && (
               <Button

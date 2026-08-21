@@ -57,13 +57,16 @@ async function stopTrace(runId: string, tag: string): Promise<string | null> {
 }
 
 interface Step {
-  action: "goto" | "fill" | "click" | "select" | "wait" | "screenshot" | "advance" | "extract" | "handoff";
+  action: "goto" | "fill" | "click" | "select" | "wait" | "wait_for" | "screenshot" | "advance" | "extract" | "prompt" | "handoff";
   selector?: string;
   value?: string;
   pattern?: string;
   label?: string;
   optional?: boolean;
   timeout?: number;
+  var_name?: string;
+  url_pattern?: string;
+  text_pattern?: string;
 }
 
 interface Run {
@@ -74,6 +77,9 @@ interface Run {
   proxy_session?: string | null;
   input_data: Record<string, string>;
   credentials: Record<string, string>;
+  run_vars?: Record<string, string> | null;
+  resume_step?: number | null;
+  storage_state?: any;
   log: { at: string; msg: string }[];
 }
 
@@ -81,6 +87,13 @@ interface Run {
 function render(template: string, vars: Record<string, string>): string {
   return template.replace(/\{\{\s*([a-z0-9_]+)\s*\}\}/gi, (_m, key) => vars[key] ?? "");
 }
+
+/** Wandelt ein Glob-Muster (mit *) in einen regulären Ausdruck um. */
+function globToRe(pattern: string): RegExp {
+  const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\\\*/g, ".*");
+  return new RegExp(escaped, "i");
+}
+
 
 async function appendLog(runId: string, current: Run["log"], msg: string) {
   const log = [...current, { at: new Date().toISOString(), msg }].slice(-200);
@@ -323,10 +336,13 @@ async function captureDiagnostics(page: Page, runId: string, tag: string) {
 
 
 async function runSteps(page: Page, run: Run, steps: Step[]) {
-  const vars = { ...run.input_data, ...run.credentials };
+  const vars = { ...run.input_data, ...run.credentials, ...(run.run_vars ?? {}) };
   let log = run.log ?? [];
+  const startAt = Math.min(Math.max(Number(run.resume_step ?? 0), 0), Math.max(steps.length - 1, 0));
+  if (startAt > 0) log = await appendLog(run.id, log, `Fortsetzung ab Schritt ${startAt + 1}`);
 
-  for (let i = 0; i < steps.length; i++) {
+  for (let i = startAt; i < steps.length; i++) {
+
     const step = steps[i];
     if (!step) continue;
     const timeout = step.timeout ?? (step.action === "goto" ? NAV_TIMEOUT : STEP_TIMEOUT);
@@ -373,7 +389,53 @@ async function runSteps(page: Page, run: Run, steps: Step[]) {
           }
           break;
 
+        case "wait_for": {
+          const urlPat = step.url_pattern ? render(step.url_pattern, vars) : "";
+          const textPat = step.text_pattern ? render(step.text_pattern, vars) : "";
+          if (urlPat) {
+            await page.waitForURL(globToRe(urlPat), { timeout });
+          }
+          if (textPat) {
+            await page.getByText(new RegExp(escapeRe(textPat), "i")).first()
+              .waitFor({ state: "visible", timeout });
+          }
+          if (!urlPat && !textPat) await page.waitForLoadState("domcontentloaded", { timeout }).catch(() => undefined);
+          await dismissConsent(page);
+          break;
+        }
+
+        case "prompt": {
+          const key = (step.var_name || "wert").toLowerCase();
+          if (vars[key]) {
+            log = await appendLog(run.id, log, `Rückfrage "${key}" bereits beantwortet – weiter`);
+            break;
+          }
+          // Sitzung sichern, damit der Lauf später eingeloggt weitermachen kann.
+          let storage: unknown = null;
+          try { storage = await page.context().storageState(); } catch { /* egal */ }
+          const shot = await page.screenshot({ fullPage: false }).catch(() => null);
+          let shotPath: string | null = null;
+          if (shot) {
+            shotPath = `bot-runs/${run.id}/prompt-${Date.now()}.png`;
+            await db.storage.from("documents").upload(shotPath, shot, { contentType: "image/png" })
+              .catch(() => { shotPath = null; });
+          }
+          await db.from("bot_runs").update({
+            status: "waiting_admin",
+            pending_var: key,
+            pending_prompt: step.label ?? `Bitte "${key}" eingeben`,
+            resume_step: i,
+            handoff_reason: step.label ?? `Bitte "${key}" eingeben`,
+            handoff_url: page.url(),
+            storage_state: storage,
+            ...(shotPath ? { screenshot_path: shotPath } : {}),
+          }).eq("id", run.id);
+          await appendLog(run.id, log, `Rückfrage an Admin: ${step.label ?? key}`);
+          return "handoff" as const;
+        }
+
         case "screenshot": {
+
           const buf = await page.screenshot({ fullPage: false });
           const path = `bot-runs/${run.id}/${Date.now()}.png`;
           await db.storage.from("documents").upload(path, buf, { contentType: "image/png" });
@@ -483,6 +545,7 @@ async function runSteps(page: Page, run: Run, steps: Step[]) {
           status: "waiting_admin",
           handoff_reason: `Schritt ${i + 1} (${step.label ?? step.action}): ${err.message}`,
           handoff_url: pageUrl,
+          resume_step: i,
           ...(diag.screenshot_path ? { screenshot_path: diag.screenshot_path } : {}),
         }).eq("id", run.id);
         return "handoff" as const;
@@ -495,6 +558,7 @@ async function runSteps(page: Page, run: Run, steps: Step[]) {
           status: "waiting_admin",
           handoff_reason: `Schritt ${i + 1} (${step.label ?? step.action}) konnte nicht ausgeführt werden – Element "${selector}" war nicht erreichbar. Bitte Screenshot und Element-Vorschläge prüfen und ggf. den Selektor im Bot-Profil korrigieren.`,
           handoff_url: pageUrl,
+          resume_step: i,
           ...(diag.screenshot_path ? { screenshot_path: diag.screenshot_path } : {}),
         }).eq("id", run.id);
         return "handoff" as const;
@@ -564,7 +628,10 @@ async function processOne(): Promise<boolean> {
     locale: "de-DE",
     timezoneId: "Europe/Berlin",
     userAgent: USER_AGENT,
+    // Fortsetzung: gespeicherte Sitzung (Cookies) wiederherstellen.
+    ...(run.storage_state ? { storageState: run.storage_state as any } : {}),
   });
+
   context.setDefaultNavigationTimeout(NAV_TIMEOUT);
   context.setDefaultTimeout(NAV_TIMEOUT);
   if (TRACE_ENABLED) {
@@ -591,9 +658,15 @@ async function processOne(): Promise<boolean> {
     const result = await runSteps(page, run, steps);
     if (result === "done") {
       await db.from("bot_runs").update({
-        status: "done", finished_at: new Date().toISOString(),
+        status: "done",
+        finished_at: new Date().toISOString(),
+        resume_step: 0,
+        pending_var: null,
+        pending_prompt: null,
+        storage_state: null,
       }).eq("id", run.id);
     }
+
   } catch (err: any) {
     const msg = String(err?.message ?? err);
     const friendly = /ERR_TIMED_OUT/i.test(msg)

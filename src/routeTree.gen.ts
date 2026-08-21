@@ -79,6 +79,8 @@ import { Route as ApiPublicInterviewTestCreateRouteImport } from './routes/api/p
 import { Route as ApiPublicInterviewChatRouteImport } from './routes/api/public/interview-chat'
 import { Route as ApiPublicDomainHealthCronRouteImport } from './routes/api/public/domain-health-cron'
 import { Route as ApiPublicCalendlyWebhookRouteImport } from './routes/api/public/calendly-webhook'
+import { Route as ApiPublicBotRecordingsRouteImport } from './routes/api/public/bot-recordings'
+import { Route as ApiPublicBotRecorderScriptRouteImport } from './routes/api/public/bot-recorder-script'
 import { Route as ApiPublicBookingRouteImport } from './routes/api/public/booking'
 import { Route as ApiPublicAutoAssignCronRouteImport } from './routes/api/public/auto-assign-cron'
 import { Route as ApiPublicApplicationsRouteImport } from './routes/api/public/applications'
@@ -446,6 +448,17 @@ const ApiPublicCalendlyWebhookRoute =
     path: '/api/public/calendly-webhook',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiPublicBotRecordingsRoute = ApiPublicBotRecordingsRouteImport.update({
+  id: '/api/public/bot-recordings',
+  path: '/api/public/bot-recordings',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiPublicBotRecorderScriptRoute =
+  ApiPublicBotRecorderScriptRouteImport.update({
+    id: '/api/public/bot-recorder-script',
+    path: '/api/public/bot-recorder-script',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiPublicBookingRoute = ApiPublicBookingRouteImport.update({
   id: '/api/public/booking',
   path: '/api/public/booking',
@@ -581,6 +594,8 @@ export interface FileRoutesByFullPath {
   '/api/public/applications': typeof ApiPublicApplicationsRoute
   '/api/public/auto-assign-cron': typeof ApiPublicAutoAssignCronRoute
   '/api/public/booking': typeof ApiPublicBookingRoute
+  '/api/public/bot-recorder-script': typeof ApiPublicBotRecorderScriptRoute
+  '/api/public/bot-recordings': typeof ApiPublicBotRecordingsRoute
   '/api/public/calendly-webhook': typeof ApiPublicCalendlyWebhookRoute
   '/api/public/domain-health-cron': typeof ApiPublicDomainHealthCronRoute
   '/api/public/interview-chat': typeof ApiPublicInterviewChatRoute
@@ -663,6 +678,8 @@ export interface FileRoutesByTo {
   '/api/public/applications': typeof ApiPublicApplicationsRoute
   '/api/public/auto-assign-cron': typeof ApiPublicAutoAssignCronRoute
   '/api/public/booking': typeof ApiPublicBookingRoute
+  '/api/public/bot-recorder-script': typeof ApiPublicBotRecorderScriptRoute
+  '/api/public/bot-recordings': typeof ApiPublicBotRecordingsRoute
   '/api/public/calendly-webhook': typeof ApiPublicCalendlyWebhookRoute
   '/api/public/domain-health-cron': typeof ApiPublicDomainHealthCronRoute
   '/api/public/interview-chat': typeof ApiPublicInterviewChatRoute
@@ -748,6 +765,8 @@ export interface FileRoutesById {
   '/api/public/applications': typeof ApiPublicApplicationsRoute
   '/api/public/auto-assign-cron': typeof ApiPublicAutoAssignCronRoute
   '/api/public/booking': typeof ApiPublicBookingRoute
+  '/api/public/bot-recorder-script': typeof ApiPublicBotRecorderScriptRoute
+  '/api/public/bot-recordings': typeof ApiPublicBotRecordingsRoute
   '/api/public/calendly-webhook': typeof ApiPublicCalendlyWebhookRoute
   '/api/public/domain-health-cron': typeof ApiPublicDomainHealthCronRoute
   '/api/public/interview-chat': typeof ApiPublicInterviewChatRoute
@@ -833,6 +852,8 @@ export interface FileRouteTypes {
     | '/api/public/applications'
     | '/api/public/auto-assign-cron'
     | '/api/public/booking'
+    | '/api/public/bot-recorder-script'
+    | '/api/public/bot-recordings'
     | '/api/public/calendly-webhook'
     | '/api/public/domain-health-cron'
     | '/api/public/interview-chat'
@@ -915,6 +936,8 @@ export interface FileRouteTypes {
     | '/api/public/applications'
     | '/api/public/auto-assign-cron'
     | '/api/public/booking'
+    | '/api/public/bot-recorder-script'
+    | '/api/public/bot-recordings'
     | '/api/public/calendly-webhook'
     | '/api/public/domain-health-cron'
     | '/api/public/interview-chat'
@@ -999,6 +1022,8 @@ export interface FileRouteTypes {
     | '/api/public/applications'
     | '/api/public/auto-assign-cron'
     | '/api/public/booking'
+    | '/api/public/bot-recorder-script'
+    | '/api/public/bot-recordings'
     | '/api/public/calendly-webhook'
     | '/api/public/domain-health-cron'
     | '/api/public/interview-chat'
@@ -1039,6 +1064,8 @@ export interface RootRouteChildren {
   ApiPublicApplicationsRoute: typeof ApiPublicApplicationsRoute
   ApiPublicAutoAssignCronRoute: typeof ApiPublicAutoAssignCronRoute
   ApiPublicBookingRoute: typeof ApiPublicBookingRoute
+  ApiPublicBotRecorderScriptRoute: typeof ApiPublicBotRecorderScriptRoute
+  ApiPublicBotRecordingsRoute: typeof ApiPublicBotRecordingsRoute
   ApiPublicCalendlyWebhookRoute: typeof ApiPublicCalendlyWebhookRoute
   ApiPublicDomainHealthCronRoute: typeof ApiPublicDomainHealthCronRoute
   ApiPublicInterviewChatRoute: typeof ApiPublicInterviewChatRoute
@@ -1545,6 +1572,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicCalendlyWebhookRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/bot-recordings': {
+      id: '/api/public/bot-recordings'
+      path: '/api/public/bot-recordings'
+      fullPath: '/api/public/bot-recordings'
+      preLoaderRoute: typeof ApiPublicBotRecordingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/bot-recorder-script': {
+      id: '/api/public/bot-recorder-script'
+      path: '/api/public/bot-recorder-script'
+      fullPath: '/api/public/bot-recorder-script'
+      preLoaderRoute: typeof ApiPublicBotRecorderScriptRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/public/booking': {
       id: '/api/public/booking'
       path: '/api/public/booking'
@@ -1789,6 +1830,8 @@ const rootRouteChildren: RootRouteChildren = {
   ApiPublicApplicationsRoute: ApiPublicApplicationsRoute,
   ApiPublicAutoAssignCronRoute: ApiPublicAutoAssignCronRoute,
   ApiPublicBookingRoute: ApiPublicBookingRoute,
+  ApiPublicBotRecorderScriptRoute: ApiPublicBotRecorderScriptRoute,
+  ApiPublicBotRecordingsRoute: ApiPublicBotRecordingsRoute,
   ApiPublicCalendlyWebhookRoute: ApiPublicCalendlyWebhookRoute,
   ApiPublicDomainHealthCronRoute: ApiPublicDomainHealthCronRoute,
   ApiPublicInterviewChatRoute: ApiPublicInterviewChatRoute,
