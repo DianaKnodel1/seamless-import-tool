@@ -885,6 +885,11 @@ function AdminChatPage() {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
             <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Suchen…" className="pl-9 h-9 text-sm" />
           </div>
+          {activityError && (
+            <p className="text-[10px] text-amber-600 dark:text-amber-400 leading-snug">
+              Login-/Aktivitätsstatus nicht verfügbar: {activityError}
+            </p>
+          )}
           {/* Aktiv / Ausgeblendet */}
           <div className="flex gap-1">
             <button
