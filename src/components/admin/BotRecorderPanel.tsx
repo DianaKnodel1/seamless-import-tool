@@ -5,8 +5,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import {
   startBotRecording, listBotRecordings, buildBotRecordingSteps,
-  deleteBotRecording, stopBotRecording,
+  deleteBotRecording, stopBotRecording, importBotRecordingSteps,
 } from "@/lib/bot-recordings.functions";
+
 import { saveBotProfile, type BotProfileRow, type BotStep } from "@/lib/bots.functions";
 import type { CleanStep } from "@/lib/recording-clean";
 import { Button } from "@/components/ui/button";
@@ -34,6 +35,7 @@ export function BotRecorderPanel({ profiles, onSaved }: Props) {
   const build = useServerFn(buildBotRecordingSteps);
   const stop = useServerFn(stopBotRecording);
   const remove = useServerFn(deleteBotRecording);
+  const importSteps = useServerFn(importBotRecordingSteps);
   const saveProfile = useServerFn(saveBotProfile);
 
   const [name, setName] = useState("");
@@ -41,6 +43,9 @@ export function BotRecorderPanel({ profiles, onSaved }: Props) {
   const [token, setToken] = useState<string | null>(null);
   const [preview, setPreview] = useState<{ id: string; steps: CleanStep[]; notes: string[]; raw: number } | null>(null);
   const [json, setJson] = useState("");
+  const [pasteFor, setPasteFor] = useState<string | null>(null);
+  const [pasteJson, setPasteJson] = useState("");
+
 
   const listQ = useQuery({
     queryKey: ["bot-recordings"],
@@ -95,7 +100,18 @@ export function BotRecorderPanel({ profiles, onSaved }: Props) {
     onError: (e: any) => toast({ title: "Fehler", description: e.message, variant: "destructive" }),
   });
 
+  const importM = useMutation({
+    mutationFn: (v: { id: string; json: string }) => importSteps({ data: v }),
+    onSuccess: (r) => {
+      toast({ title: "Schritte übernommen", description: `${r.count} Ereignisse gespeichert.` });
+      setPasteFor(null); setPasteJson("");
+      qc.invalidateQueries({ queryKey: ["bot-recordings"] });
+    },
+    onError: (e: any) => toast({ title: "Fehler", description: e.message, variant: "destructive" }),
+  });
+
   const rows = listQ.data?.rows ?? [];
+
 
   return (
     <div className="space-y-4">
@@ -153,7 +169,8 @@ export function BotRecorderPanel({ profiles, onSaved }: Props) {
         <h3 className="text-sm font-semibold">Aufnahmen</h3>
         {rows.length === 0 && <p className="text-xs text-muted-foreground">Noch keine Aufnahmen.</p>}
         {rows.map((r) => (
-          <div key={r.id} className="flex items-center justify-between gap-3 border-t pt-2 text-xs">
+          <div key={r.id} className="border-t pt-2 text-xs space-y-2">
+            <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
               <span className="font-medium">{r.name}</span>
               <Badge variant="secondary" className="ml-2 text-[10px]">{r.status}</Badge>
@@ -171,6 +188,12 @@ export function BotRecorderPanel({ profiles, onSaved }: Props) {
                 </Button>
               )}
               <Button
+                size="sm" variant="outline" className="h-7 text-xs"
+                onClick={() => { setPasteFor(pasteFor === r.id ? null : r.id); setPasteJson(""); }}
+              >
+                Schritte einfügen
+              </Button>
+              <Button
                 size="sm" className="h-7 text-xs"
                 onClick={() => buildM.mutate(r.id)}
                 disabled={buildM.isPending || (r.raw_steps?.length ?? 0) === 0}
@@ -185,8 +208,29 @@ export function BotRecorderPanel({ profiles, onSaved }: Props) {
                 <Trash2 className="h-3.5 w-3.5" />
               </Button>
             </div>
+            </div>
+            {pasteFor === r.id && (
+              <div className="space-y-1.5 rounded-lg border bg-muted/30 p-2">
+                <p className="text-[11px] text-muted-foreground">
+                  Falls die Bankseite das Senden blockiert: in der Recorder-Leiste auf „Kopieren“ klicken und den Text hier einfügen.
+                </p>
+                <Textarea
+                  rows={4} className="font-mono text-[11px]" value={pasteJson}
+                  onChange={(e) => setPasteJson(e.target.value)}
+                  placeholder='[{"t":…,"kind":"click", …}]'
+                />
+                <Button
+                  size="sm" className="h-7 text-xs"
+                  disabled={importM.isPending || pasteJson.trim().length < 2}
+                  onClick={() => importM.mutate({ id: r.id, json: pasteJson })}
+                >
+                  Übernehmen
+                </Button>
+              </div>
+            )}
           </div>
         ))}
+
       </div>
 
       {preview && (
