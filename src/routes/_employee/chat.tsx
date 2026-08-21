@@ -249,6 +249,7 @@ function ChatPage() {
     } as any);
     if (error) toast({ title: "Fehler", description: error.message, variant: "destructive" });
     setNewMessage("");
+    broadcastTyping("");
     setPendingAttachment(null);
     setSending(false);
   };
