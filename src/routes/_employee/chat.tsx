@@ -33,7 +33,11 @@ interface ChatMessage {
   attachment_type?: string | null;
 }
 
-const SYSTEM_PREFIXES = ["✅", "🎓", "📋", "💰", "⚠️", "🎉", "📅", "Willkommen", "Hallo", "✍️"];
+const PAGE_SIZE = 200;
+
+// Nur echte Systemmeldungen erkennen. "Hallo"/"Willkommen" sind raus – echte
+// Teamleiter-Antworten beginnen oft so und sahen dadurch wie Systemtext aus.
+const SYSTEM_PREFIXES = ["✅", "🎓", "📋", "💰", "⚠️", "🎉", "📅", "✍️"];
 
 function isSystemMessage(msg: ChatMessage, leaderId: string) {
   return msg.sender_id === leaderId && SYSTEM_PREFIXES.some((p) => msg.message.startsWith(p));
