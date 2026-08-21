@@ -1,50 +1,28 @@
-# Chat-Prüfung: was noch offen ist
+# Chat: verbleibende Fehler beheben
 
-Die drei zuletzt gemeldeten Fehler (fehlende neue Nachrichten, globaler Tipp-Indikator, „Hallo"/„Willkommen" als Systemmeldung) sind im Code behoben. Bei der erneuten Durchsicht sind aber noch vier echte Schwachstellen aufgefallen.
+Die zuletzt gemeldeten Hauptprobleme sind bereits behoben (neueste Nachrichten werden geladen statt der ältesten, Tipp-Indikator läuft pro Gespräch statt global, "Hallo"/"Willkommen" gelten nicht mehr als Systemtext). Bei der erneuten Prüfung sind noch vier Punkte offen.
 
-## 1. Gelesen-Status wird im Mitarbeiter-Chat nicht aktualisiert (wichtig)
+## 1. Ungelesen-Zähler bleibt stehen
+Der Mitarbeiter-Chat markiert Nachrichten nur beim Öffnen als gelesen. Kommt eine Nachricht rein, während der Chat offen ist, bleibt sie in der Admin-Ansicht "ungelesen".
 
-Auf der Mitarbeiter-Chatseite werden Nachrichten nur beim **Laden** der Seite auf „gelesen" gesetzt. Kommt eine Nachricht herein, während der Chat offen ist, bleibt sie dauerhaft „ungelesen".
+Fix: eingehende Nachrichten im Realtime-Handler sofort auf gelesen setzen (`src/routes/_employee/chat.tsx`, `src/components/FloatingChat.tsx`).
 
-Folge: In der Admin-Übersicht bleibt der rote Ungelesen-Zähler stehen und wächst, obwohl der Mitarbeiter mitliest — es wirkt, als „hänge" der Chat.
+## 2. Tipp-Indikator flackert / bleibt hängen
+Es wird nur "tippt" gesendet, nie "tippt nicht mehr" – der Indikator verschwindet erst nach Timeout und kann nach dem Absenden noch stehenbleiben.
 
-Fix: im Realtime-Handler eingehende Nachrichten sofort als gelesen markieren (so wie es das schwebende Chat-Fenster bereits macht).
+Fix: beim Leeren des Feldes und beim Absenden ein explizites Stop-Signal senden (alle drei Chat-Oberflächen).
 
-## 2. Admin-Übersicht kappt bei 5.000 Nachrichten
+## 3. Systemmeldungen werden geraten
+Erkennung läuft weiterhin über Emoji-Präfixe. Eine normale Nachricht, die mit 📅 oder ✅ beginnt, wird fälschlich als Systemtext dargestellt.
 
-Die Gesprächsliste wird aus den letzten 5.000 Nachrichten aller Nutzer berechnet. Sobald diese Grenze überschritten ist, verschwinden ruhigere Gespräche komplett aus der Seitenleiste bzw. zeigen eine veraltete letzte Nachricht.
+Fix: Spalte `is_system` an `chat_messages` ergänzen, beim Erzeugen von Systemmeldungen setzen und im UI vorrangig auswerten (Präfix-Erkennung nur noch als Rückfall für Altdaten).
 
-Fix: letzte Nachricht + Ungelesen-Zähler pro Gespräch serverseitig aggregieren (eine Server-Function mit einer Gruppierungs-Abfrage) statt clientseitig aus einem gekappten Fenster.
+## 4. Gespräche verschwinden aus der Admin-Seitenleiste
+Die Gesprächsliste wird aus den letzten 5.000 Nachrichten insgesamt gebaut. Sobald dieses Fenster überschritten ist, fallen ruhige Gespräche aus der Liste.
 
-## 3. Tipp-Indikator flackert / bleibt stehen
+Fix: serverseitige Aggregation (`list_chat_conversations`) über alle Nachrichten, mit der bisherigen Logik als Rückfall.
 
-Es wird nur „tippt" gesendet, nie „tippt nicht mehr". Der Indikator verschwindet erst nach 3 Sekunden Timeout und taucht wieder auf, sobald irgendeine Taste (auch Pfeiltasten) gedrückt wird.
-
-Fix: nur senden, wenn das Eingabefeld tatsächlich Text enthält und sich der Text verändert hat, und beim Absenden/Leeren des Feldes ein „stop"-Ereignis senden.
-
-## 4. Systemmeldungen werden weiter geraten
-
-Die Erkennung läuft noch über Emoji-Präfixe im Text. Jede echte Nachricht, die z. B. mit „📅" beginnt, wird als Systemtext dargestellt.
-
-Fix: Spalte `is_system` (boolean, Standard false) an `chat_messages`, von allen systemgenerierten Inserts gesetzt; Anzeige nutzt das Feld, die Präfix-Heuristik greift nur noch als Rückfall für Altdaten.
-
-## Ebenfalls geprüft, kein Handlungsbedarf jetzt
-
-- Nachrichtenverlauf lädt korrekt die neuesten 200 + „Ältere laden" (Mitarbeiter-Seite, Chat-Fenster, Admin).
-- Tipp-Kanäle sind auf das Gesprächspaar begrenzt, kein Crosstalk mehr.
-- Anhänge (Upload, Anzeige) sind auf beiden Seiten konsistent verdrahtet.
-
-## Technische Umsetzung
-
-- `src/routes/_employee/chat.tsx`: Read-Update im Realtime-Handler; Typing-Broadcast nur bei Textänderung + Stop-Event.
-- `src/components/FloatingChat.tsx`: gleiche Typing-Anpassung.
-- `src/routes/admin.chat.tsx`: Gesprächsliste über neue Server-Function laden; `is_system` statt Präfix-Heuristik.
-- Neue Server-Function `listChatConversations` in `src/lib/chat.functions.ts` (Aggregation pro Partner).
-- Migration: `alter table public.chat_messages add column is_system boolean not null default false;` inkl. Backfill für bekannte Präfixe.
-
-## Reihenfolge
-
-1. Punkt 1 (Gelesen-Status) — kleinster Eingriff, größte Wirkung.
-2. Punkt 3 (Tipp-Indikator).
-3. Punkt 4 (`is_system` + Migration).
-4. Punkt 2 (serverseitige Aggregation).
+## Technische Details
+- Migration (manuell in `db-migrations/`, wie im Projekt üblich): `ALTER TABLE chat_messages ADD COLUMN is_system boolean NOT NULL DEFAULT false` plus SQL-Funktion `list_chat_conversations()` (letzte Nachricht, Zeitpunkt, Ungelesen-Anzahl, letzte Mitarbeiter-Nachricht je Partner), `SECURITY DEFINER`, `GRANT EXECUTE ... TO authenticated`.
+- Betroffene Dateien: `src/routes/_employee/chat.tsx`, `src/components/FloatingChat.tsx`, `src/routes/admin.chat.tsx`, neue Migrationsdatei.
+- Nach dem Umsetzen: Migration auf der Datenbank ausführen, dann Portal deployen (`bash scripts/deploy.sh`).
