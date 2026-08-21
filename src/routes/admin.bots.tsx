@@ -9,6 +9,7 @@ import {
 } from "@/lib/bots.functions";
 import { BotRunDebugDialog } from "@/components/admin/BotRunDebugDialog";
 import { BotHandoffCard } from "@/components/admin/BotHandoffCard";
+import { BotRecorderPanel } from "@/components/admin/BotRecorderPanel";
 import { useAdminData } from "@/contexts/AdminDataContext";
 import { getAllEmployees } from "@/lib/employee-utils";
 import { Button } from "@/components/ui/button";
@@ -279,6 +280,7 @@ function AdminBotsPage() {
                 onClaim={(release) => claimM.mutate({ id: r.id, release })}
                 onDone={() => statusM.mutate({ id: r.id, status: "done" })}
                 onDiagnose={() => setDebugRun(r)}
+                onResumed={() => qc.invalidateQueries({ queryKey: ["bot-runs"] })}
               />
             ))}
           </div>
@@ -290,6 +292,7 @@ function AdminBotsPage() {
         <TabsList>
           <TabsTrigger value="profiles" className="text-xs">Bot-Profile</TabsTrigger>
           <TabsTrigger value="runs" className="text-xs">Läufe</TabsTrigger>
+          <TabsTrigger value="recorder" className="text-xs">Aufnahme</TabsTrigger>
           <TabsTrigger value="proxies" className="text-xs">Proxys</TabsTrigger>
         </TabsList>
 
@@ -402,6 +405,13 @@ function AdminBotsPage() {
               </table>
             </div>
           )}
+        </TabsContent>
+
+        <TabsContent value="recorder" className="mt-4">
+          <BotRecorderPanel
+            profiles={profilesQ.data?.rows ?? []}
+            onSaved={() => qc.invalidateQueries({ queryKey: ["bot-profiles"] })}
+          />
         </TabsContent>
 
         <TabsContent value="proxies" className="mt-4">
