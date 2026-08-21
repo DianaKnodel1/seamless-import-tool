@@ -53,8 +53,9 @@ export const Route = createFileRoute("/api/public/bot-recordings")({
         if (!parsed.success) return json({ ok: false, error: "invalid" }, 400);
 
         const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+        const admin = supabaseAdmin as any;
         const tokenHash = await sha256(parsed.data.token);
-        const { data: rec } = await supabaseAdmin
+        const { data: rec } = await admin
           .from("bot_recordings")
           .select("id, raw_steps, status, expires_at")
           .eq("token_hash", tokenHash)
@@ -67,7 +68,7 @@ export const Route = createFileRoute("/api/public/bot-recordings")({
         }
 
         const merged = [...((row.raw_steps ?? []) as unknown[]), ...parsed.data.steps].slice(-1500);
-        const { error } = await supabaseAdmin
+        const { error } = await admin
           .from("bot_recordings")
           .update({
             raw_steps: merged,
