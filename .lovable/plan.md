@@ -28,3 +28,8 @@ wie Systemtext und werden leicht uebersehen.
 Fix: nur noch echte, vom System erzeugte Nachrichten so kennzeichnen
 (Markierung an der Nachricht statt Raten am Text). Bis das Feld existiert:
 Praefixe "Hallo" und "Willkommen" aus der Erkennung entfernen.
+
+## Fehler 3: Tipp-Indikator zeigt fremdes Tippen
+Das Chat-Fenster hoert auf einen globalen Kanal "floating-chat-main" und
+zeigt "<Teamleiter> tippt gerade live..." sobald IRGENDEIN anderer Nutzer
+t
