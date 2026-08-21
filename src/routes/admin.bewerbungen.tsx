@@ -294,7 +294,7 @@ function AdminBewerbungenPage() {
       } : null;
       const bk = bookingByApp.get(a.id) ?? null;
       const sched = bk?.date ?? (a.scheduled_at ? new Date(a.scheduled_at) : null);
-      const phase = computePhase(a, sched, prof, bk?.status ?? null);
+      const { phase, reason: phaseReason } = computePhase(a, sched, prof, bk?.status ?? null);
 
       return {
         id: a.id,
@@ -302,6 +302,7 @@ function AdminBewerbungenPage() {
         email: a.email || "—",
         phone: a.phone || "—",
         phase,
+        phaseReason,
         tenantId: a.tenant_id ?? null,
         archived: a.is_archived === true,
         lastActivity: a.created_at,
