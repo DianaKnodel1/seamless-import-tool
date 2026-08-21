@@ -31,15 +31,18 @@ interface ChatMessage {
   attachment_url?: string | null;
   attachment_name?: string | null;
   attachment_type?: string | null;
+  is_system?: boolean | null;
 }
 
 const PAGE_SIZE = 200;
 
-// Nur echte Systemmeldungen erkennen. "Hallo"/"Willkommen" sind raus – echte
-// Teamleiter-Antworten beginnen oft so und sahen dadurch wie Systemtext aus.
+// Rückfall für Altdaten ohne gesetztes is_system-Feld. "Hallo"/"Willkommen"
+// sind raus – echte Teamleiter-Antworten beginnen oft so.
 const SYSTEM_PREFIXES = ["✅", "🎓", "📋", "💰", "⚠️", "🎉", "📅", "✍️"];
 
 function isSystemMessage(msg: ChatMessage, leaderId: string) {
+  // Echte Server-Markierung hat Vorrang; nur wenn sie fehlt, wird geraten.
+  if (typeof msg.is_system === "boolean") return msg.is_system;
   return msg.sender_id === leaderId && SYSTEM_PREFIXES.some((p) => msg.message.startsWith(p));
 }
 
