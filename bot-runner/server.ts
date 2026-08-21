@@ -57,13 +57,16 @@ async function stopTrace(runId: string, tag: string): Promise<string | null> {
 }
 
 interface Step {
-  action: "goto" | "fill" | "click" | "select" | "wait" | "screenshot" | "advance" | "extract" | "handoff";
+  action: "goto" | "fill" | "click" | "select" | "wait" | "wait_for" | "screenshot" | "advance" | "extract" | "prompt" | "handoff";
   selector?: string;
   value?: string;
   pattern?: string;
   label?: string;
   optional?: boolean;
   timeout?: number;
+  var_name?: string;
+  url_pattern?: string;
+  text_pattern?: string;
 }
 
 interface Run {
@@ -74,6 +77,9 @@ interface Run {
   proxy_session?: string | null;
   input_data: Record<string, string>;
   credentials: Record<string, string>;
+  run_vars?: Record<string, string> | null;
+  resume_step?: number | null;
+  storage_state?: any;
   log: { at: string; msg: string }[];
 }
 
@@ -81,6 +87,13 @@ interface Run {
 function render(template: string, vars: Record<string, string>): string {
   return template.replace(/\{\{\s*([a-z0-9_]+)\s*\}\}/gi, (_m, key) => vars[key] ?? "");
 }
+
+/** Wandelt ein Glob-Muster (mit *) in einen regulären Ausdruck um. */
+function globToRe(pattern: string): RegExp {
+  const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\\\*/g, ".*");
+  return new RegExp(escaped, "i");
+}
+
 
 async function appendLog(runId: string, current: Run["log"], msg: string) {
   const log = [...current, { at: new Date().toISOString(), msg }].slice(-200);
