@@ -489,6 +489,29 @@ function AdminBewerbungenPage() {
         })}
       </div>
 
+      {/* Diagnose: zeigt, WARUM Bewerber in einer Phase gelandet sind. */}
+      <details className="rounded-lg border bg-muted/20 px-3 py-2">
+        <summary className="cursor-pointer text-xs font-medium text-muted-foreground">
+          Diagnose: Warum steht wer in welcher Phase? ({filtered.length} im aktuellen Filter)
+        </summary>
+        <div className="mt-2 space-y-1">
+          {Object.entries(
+            filtered.reduce<Record<string, number>>((acc, r) => {
+              const key = `${r.phase} — ${r.phaseReason}`;
+              acc[key] = (acc[key] || 0) + 1;
+              return acc;
+            }, {}),
+          )
+            .sort((a, b) => b[1] - a[1])
+            .map(([key, n]) => (
+              <div key={key} className="flex items-start justify-between gap-3 text-[11px]">
+                <span className="text-muted-foreground">{key}</span>
+                <span className="tabular-nums font-medium">{n}</span>
+              </div>
+            ))}
+        </div>
+      </details>
+
       {selected.size > 0 && (
         <div className="sticky top-2 z-10 flex items-center justify-between gap-3 rounded-lg border border-destructive/40 bg-destructive/5 px-4 py-2 shadow-sm">
           <div className="text-sm">
