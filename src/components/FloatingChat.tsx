@@ -256,15 +256,23 @@ export default function FloatingChat() {
     }
   };
 
-  const broadcastTyping = () => {
+  // Explizites Stop-Signal, sobald das Feld leer ist oder abgesendet wurde.
+  const broadcastTyping = (text: string) => {
     if (!user || !typingChannelRef.current) return;
+    if (text.trim().length === 0) {
+      typingSentAtRef.current = 0;
+      void typingChannelRef.current.send({
+        type: "broadcast", event: "typing", payload: { userId: user.id, typing: false },
+      });
+      return;
+    }
     const now = Date.now();
     if (now - typingSentAtRef.current < 1200) return;
     typingSentAtRef.current = now;
     void typingChannelRef.current.send({
       type: "broadcast",
       event: "typing",
-      payload: { userId: user.id },
+      payload: { userId: user.id, typing: true },
     });
   };
 
