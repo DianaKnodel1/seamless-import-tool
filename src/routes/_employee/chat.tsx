@@ -77,7 +77,12 @@ function ChatPage() {
   const { leader, initials: leaderInitials, lastActiveText } = useTeamLeader();
   const [sending, setSending] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingOlder, setLoadingOlder] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const typingChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const typingTimeoutRef = useRef<number | null>(null);
+  const typingSentAtRef = useRef(0);
 
   useEffect(() => {
     if (authLoading || !user) return;
