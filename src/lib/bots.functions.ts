@@ -73,6 +73,11 @@ export interface BotRunRow {
   created_at: string;
   proxy_id?: string | null;
   debug?: BotRunDebug | null;
+  run_vars?: Record<string, string> | null;
+  pending_var?: string | null;
+  pending_prompt?: string | null;
+  resume_step?: number | null;
+
 }
 
 /** Diagnosedaten, die der Bot-Runner bei einem fehlgeschlagenen Schritt speichert. */
