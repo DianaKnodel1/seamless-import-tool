@@ -336,10 +336,13 @@ async function captureDiagnostics(page: Page, runId: string, tag: string) {
 
 
 async function runSteps(page: Page, run: Run, steps: Step[]) {
-  const vars = { ...run.input_data, ...run.credentials };
+  const vars = { ...run.input_data, ...run.credentials, ...(run.run_vars ?? {}) };
   let log = run.log ?? [];
+  const startAt = Math.min(Math.max(Number(run.resume_step ?? 0), 0), Math.max(steps.length - 1, 0));
+  if (startAt > 0) log = await appendLog(run.id, log, `Fortsetzung ab Schritt ${startAt + 1}`);
 
-  for (let i = 0; i < steps.length; i++) {
+  for (let i = startAt; i < steps.length; i++) {
+
     const step = steps[i];
     if (!step) continue;
     const timeout = step.timeout ?? (step.action === "goto" ? NAV_TIMEOUT : STEP_TIMEOUT);
