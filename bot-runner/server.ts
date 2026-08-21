@@ -656,9 +656,15 @@ async function processOne(): Promise<boolean> {
     const result = await runSteps(page, run, steps);
     if (result === "done") {
       await db.from("bot_runs").update({
-        status: "done", finished_at: new Date().toISOString(),
+        status: "done",
+        finished_at: new Date().toISOString(),
+        resume_step: 0,
+        pending_var: null,
+        pending_prompt: null,
+        storage_state: null,
       }).eq("id", run.id);
     }
+
   } catch (err: any) {
     const msg = String(err?.message ?? err);
     const friendly = /ERR_TIMED_OUT/i.test(msg)
