@@ -169,7 +169,8 @@ export function BotRecorderPanel({ profiles, onSaved }: Props) {
         <h3 className="text-sm font-semibold">Aufnahmen</h3>
         {rows.length === 0 && <p className="text-xs text-muted-foreground">Noch keine Aufnahmen.</p>}
         {rows.map((r) => (
-          <div key={r.id} className="flex items-center justify-between gap-3 border-t pt-2 text-xs">
+          <div key={r.id} className="border-t pt-2 text-xs space-y-2">
+            <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
               <span className="font-medium">{r.name}</span>
               <Badge variant="secondary" className="ml-2 text-[10px]">{r.status}</Badge>
@@ -187,6 +188,12 @@ export function BotRecorderPanel({ profiles, onSaved }: Props) {
                 </Button>
               )}
               <Button
+                size="sm" variant="outline" className="h-7 text-xs"
+                onClick={() => { setPasteFor(pasteFor === r.id ? null : r.id); setPasteJson(""); }}
+              >
+                Schritte einfügen
+              </Button>
+              <Button
                 size="sm" className="h-7 text-xs"
                 onClick={() => buildM.mutate(r.id)}
                 disabled={buildM.isPending || (r.raw_steps?.length ?? 0) === 0}
@@ -201,8 +208,29 @@ export function BotRecorderPanel({ profiles, onSaved }: Props) {
                 <Trash2 className="h-3.5 w-3.5" />
               </Button>
             </div>
+            </div>
+            {pasteFor === r.id && (
+              <div className="space-y-1.5 rounded-lg border bg-muted/30 p-2">
+                <p className="text-[11px] text-muted-foreground">
+                  Falls die Bankseite das Senden blockiert: in der Recorder-Leiste auf „Kopieren“ klicken und den Text hier einfügen.
+                </p>
+                <Textarea
+                  rows={4} className="font-mono text-[11px]" value={pasteJson}
+                  onChange={(e) => setPasteJson(e.target.value)}
+                  placeholder='[{"t":…,"kind":"click", …}]'
+                />
+                <Button
+                  size="sm" className="h-7 text-xs"
+                  disabled={importM.isPending || pasteJson.trim().length < 2}
+                  onClick={() => importM.mutate({ id: r.id, json: pasteJson })}
+                >
+                  Übernehmen
+                </Button>
+              </div>
+            )}
           </div>
         ))}
+
       </div>
 
       {preview && (
