@@ -260,20 +260,27 @@ function AdminChatPage() {
 
     if (list.length > 0) {
       try {
-        const map = await getLastSignIns({ data: { user_ids: list.map((c) => c.user_id) } });
+        const res = await getLastSignIns({ data: { user_ids: list.map((c) => c.user_id) } });
+        const map = res.activity ?? {};
+        const problems = [res.signInError, res.seenError].filter(Boolean) as string[];
+        // Nur wenn BEIDE Quellen fehlen, ist "Noch nie eingeloggt" nicht belastbar.
+        setActivityError(res.signInError && res.seenError ? problems.join(" | ") : null);
+        if (problems.length > 0) console.warn("Aktivitäts-Quellen teilweise nicht verfügbar:", problems);
         setConversations((prev) => prev.map((c) => ({
           ...c,
           lastSignInAt: map[c.user_id]?.last_sign_in_at ?? null,
           lastSeenAt: map[c.user_id]?.last_seen_at ?? null,
         })));
-      } catch (e) {
+      } catch (e: any) {
+        const msg = e?.message || String(e);
+        setActivityError(msg);
         console.warn("Last sign-ins konnten nicht geladen werden:", e);
       }
     }
   };
 
   const formatLastActive = (ts?: string | null) => {
-    if (!ts) return "Noch nie eingeloggt";
+    if (!ts) return activityError ? "Status unbekannt" : "Noch nie eingeloggt";
     const diff = Date.now() - new Date(ts).getTime();
     const m = Math.floor(diff / 60000);
     if (m < 2) return "Gerade aktiv";
@@ -284,6 +291,7 @@ function AdminChatPage() {
     if (d < 30) return `Aktiv vor ${d} Tagen`;
     return `Aktiv am ${new Date(ts).toLocaleDateString("de-DE")}`;
   };
+
 
   const selectConversation = async (userId: string) => {
     setSelectedUserId(userId);
