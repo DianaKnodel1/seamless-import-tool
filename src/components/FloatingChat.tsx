@@ -33,6 +33,8 @@ function isInternalAdminNote(msg: ChatMessage) {
   return m.includes("[ESCALATE]") || m.includes("🤖 KI-Eskalation") || m.includes("🤖 KI Eskalation");
 }
 
+const PAGE_SIZE = 200;
+
 function formatTime(dateStr: string) {
   return new Date(dateStr).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
 }
@@ -82,11 +84,16 @@ export default function FloatingChat() {
   const [leaderTyping, setLeaderTyping] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [pendingAttachment, setPendingAttachment] = useState<ChatAttachment | null>(null);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingOlder, setLoadingOlder] = useState(false);
   // Fallback-Empfänger: letzter Absender, der mir geschrieben hat (falls kein
   // team_leader_id im Profil hinterlegt ist).
   const [fallbackPartnerId, setFallbackPartnerId] = useState<string | null>(null);
 
   const bottomRef = useRef<HTMLDivElement>(null);
+  const typingChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const typingTimeoutRef = useRef<number | null>(null);
+  const typingSentAtRef = useRef(0);
   const isOnChatPage = location.pathname.includes("/chat");
   const recipientId = teamLeaderId ?? fallbackPartnerId;
 
@@ -132,27 +139,57 @@ export default function FloatingChat() {
           triggerNotification({ senderName: leader.name || "Teamleiter", body: msg.message });
         }
       })
-      .on("broadcast", { event: "typing" }, (payload) => {
-        if (payload.payload.userId !== user.id) {
-          setLeaderTyping(true);
-          setTimeout(() => setLeaderTyping(false), 3000);
-        }
-      })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [user, teamLeaderId, open, leader.name, triggerNotification]);
 
-  const loadHistory = async () => {
+  // Tipp-Indikator: eigener Kanal je Gesprächspaar – identisch zur Admin-Ansicht.
+  // Vorher lief das über einen globalen Kanal, dadurch sah jeder Mitarbeiter
+  // „tippt gerade…", sobald irgendjemand anderes schrieb.
+  useEffect(() => {
+    if (!user || !recipientId) {
+      setLeaderTyping(false);
+      return;
+    }
+    const channelName = `typing-${[user.id, recipientId].sort().join("-")}`;
+    const channel = supabase.channel(channelName, { config: { broadcast: { self: false } } });
+    channel
+      .on("broadcast", { event: "typing" }, (payload) => {
+        if (payload.payload?.userId !== recipientId) return;
+        setLeaderTyping(true);
+        if (typingTimeoutRef.current) window.clearTimeout(typingTimeoutRef.current);
+        typingTimeoutRef.current = window.setTimeout(() => setLeaderTyping(false), 3000);
+      })
+      .subscribe();
+    typingChannelRef.current = channel;
+    return () => {
+      if (typingTimeoutRef.current) window.clearTimeout(typingTimeoutRef.current);
+      supabase.removeChannel(channel);
+      typingChannelRef.current = null;
+      setLeaderTyping(false);
+    };
+  }, [user, recipientId]);
+
+  /**
+   * Lädt die NEUESTEN Nachrichten (absteigend abfragen, danach chronologisch
+   * sortieren). Vorher wurden die 200 ältesten geladen – bei langem Verlauf
+   * kamen neue Nachrichten nach einem Reload nie an.
+   */
+  const loadHistory = async (before?: string) => {
     if (!user) return;
     setLoadError(null);
-    // Kompletter Verlauf des Mitarbeiters – unabhängig davon, welche
-    // Teamleiter-ID im Profil steht (ein Admin-Konto, viele Anzeigenamen).
-    const { data, error } = await supabase
+    if (before) setLoadingOlder(true);
+
+    let query = supabase
       .from("chat_messages")
       .select("*")
       .or(`sender_id.eq.${user.id},receiver_id.eq.${user.id}`)
-      .order("created_at", { ascending: true })
-      .limit(200);
+      .order("created_at", { ascending: false })
+      .limit(PAGE_SIZE);
+    if (before) query = query.lt("created_at", before);
+
+    const { data, error } = await query;
+    if (before) setLoadingOlder(false);
 
     if (error) {
       console.error("Chat-Verlauf konnte nicht geladen werden:", error);
@@ -161,7 +198,8 @@ export default function FloatingChat() {
     }
 
     const rows = ((data ?? []) as ChatMessage[]).filter((m) => !isInternalAdminNote(m));
-    const lastIncoming = [...rows].reverse().find((m) => m.receiver_id === user.id);
+    setHasMore((data ?? []).length === PAGE_SIZE);
+    const lastIncoming = rows.find((m) => m.receiver_id === user.id); // absteigend → erster = neuester
     if (lastIncoming) setFallbackPartnerId(lastIncoming.sender_id);
     // Verlauf zusammenführen statt ersetzen – nichts geht verloren.
     setHumanMessages((prev) => {
@@ -171,6 +209,7 @@ export default function FloatingChat() {
         (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
       );
     });
+    if (before) return;
     void supabase
       .from("chat_messages")
       .update({ read: true } as any)
@@ -214,8 +253,11 @@ export default function FloatingChat() {
   };
 
   const broadcastTyping = () => {
-    if (!user) return;
-    supabase.channel("floating-chat-main").send({
+    if (!user || !typingChannelRef.current) return;
+    const now = Date.now();
+    if (now - typingSentAtRef.current < 1200) return;
+    typingSentAtRef.current = now;
+    void typingChannelRef.current.send({
       type: "broadcast",
       event: "typing",
       payload: { userId: user.id },
@@ -262,8 +304,21 @@ export default function FloatingChat() {
             {loadError && (
               <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-3 text-[12px] text-destructive flex items-center justify-between gap-2">
                 <span>Verlauf konnte nicht geladen werden.</span>
-                <Button size="sm" variant="outline" className="h-7 gap-1 text-[11px]" onClick={loadHistory}>
+                <Button size="sm" variant="outline" className="h-7 gap-1 text-[11px]" onClick={() => void loadHistory()}>
                   <RefreshCw className="h-3 w-3" /> Erneut versuchen
+                </Button>
+              </div>
+            )}
+            {hasMore && humanMessages.length > 0 && (
+              <div className="flex justify-center">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 text-[11px]"
+                  disabled={loadingOlder}
+                  onClick={() => void loadHistory(humanMessages[0]!.created_at)}
+                >
+                  {loadingOlder ? "Lädt…" : "Ältere Nachrichten laden"}
                 </Button>
               </div>
             )}

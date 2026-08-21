@@ -33,7 +33,11 @@ interface ChatMessage {
   attachment_type?: string | null;
 }
 
-const SYSTEM_PREFIXES = ["✅", "🎓", "📋", "💰", "⚠️", "🎉", "📅", "Willkommen", "Hallo", "✍️"];
+const PAGE_SIZE = 200;
+
+// Nur echte Systemmeldungen erkennen. "Hallo"/"Willkommen" sind raus – echte
+// Teamleiter-Antworten beginnen oft so und sahen dadurch wie Systemtext aus.
+const SYSTEM_PREFIXES = ["✅", "🎓", "📋", "💰", "⚠️", "🎉", "📅", "✍️"];
 
 function isSystemMessage(msg: ChatMessage, leaderId: string) {
   return msg.sender_id === leaderId && SYSTEM_PREFIXES.some((p) => msg.message.startsWith(p));
@@ -73,7 +77,12 @@ function ChatPage() {
   const { leader, initials: leaderInitials, lastActiveText } = useTeamLeader();
   const [sending, setSending] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingOlder, setLoadingOlder] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const typingChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const typingTimeoutRef = useRef<number | null>(null);
+  const typingSentAtRef = useRef(0);
 
   useEffect(() => {
     if (authLoading || !user) return;
@@ -86,17 +95,21 @@ function ChatPage() {
         .from("profiles").select("team_leader_id").eq("user_id", user!.id).maybeSingle();
       const leaderId = profile?.team_leader_id ?? null;
 
-      // Kompletter Verlauf des Mitarbeiters – unabhängig davon, welche
-      // Teamleiter-ID hinterlegt ist (ein Admin-Konto, viele Anzeigenamen).
+      // NEUESTE Nachrichten laden (absteigend abfragen, danach chronologisch
+      // sortieren). Vorher wurden die 200 ältesten geladen – neue Nachrichten
+      // fehlten dadurch nach jedem Neuladen.
       const { data: msgs, error } = await supabase
         .from("chat_messages")
         .select("*")
         .or(`sender_id.eq.${user!.id},receiver_id.eq.${user!.id}`)
-        .order("created_at", { ascending: true })
-        .limit(200);
+        .order("created_at", { ascending: false })
+        .limit(PAGE_SIZE);
       if (error) throw error;
 
-      const visible = ((msgs ?? []) as ChatMessage[]).filter((m) => !isInternalAdminNote(m));
+      setHasMore((msgs ?? []).length === PAGE_SIZE);
+      const visible = ((msgs ?? []) as ChatMessage[])
+        .filter((m) => !isInternalAdminNote(m))
+        .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
       setMessages(visible);
 
       // Empfänger: hinterlegter Teamleiter, sonst letzter Absender an mich.
@@ -115,6 +128,32 @@ function ChatPage() {
     }
   };
 
+  const loadOlder = async () => {
+    if (!user || messages.length === 0) return;
+    setLoadingOlder(true);
+    const { data, error } = await supabase
+      .from("chat_messages")
+      .select("*")
+      .or(`sender_id.eq.${user.id},receiver_id.eq.${user.id}`)
+      .lt("created_at", messages[0]!.created_at)
+      .order("created_at", { ascending: false })
+      .limit(PAGE_SIZE);
+    setLoadingOlder(false);
+    if (error) {
+      console.error("Ältere Nachrichten konnten nicht geladen werden:", error);
+      return;
+    }
+    setHasMore((data ?? []).length === PAGE_SIZE);
+    const older = ((data ?? []) as ChatMessage[]).filter((m) => !isInternalAdminNote(m));
+    setMessages((prev) => {
+      const map = new Map<string, ChatMessage>();
+      for (const m of [...older, ...prev]) map.set(m.id, m);
+      return Array.from(map.values()).sort(
+        (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+      );
+    });
+  };
+
   useEffect(() => {
     if (!user) return;
     const channel = supabase
@@ -131,6 +170,43 @@ function ChatPage() {
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [user, teamLeaderId]);
+
+  // Tipp-Indikator pro Gesprächspaar (gleicher Kanalname wie in der Admin-Ansicht).
+  useEffect(() => {
+    if (!user || !teamLeaderId) {
+      setIsTyping(false);
+      return;
+    }
+    const channelName = `typing-${[user.id, teamLeaderId].sort().join("-")}`;
+    const channel = supabase.channel(channelName, { config: { broadcast: { self: false } } });
+    channel
+      .on("broadcast", { event: "typing" }, (payload) => {
+        if (payload.payload?.userId !== teamLeaderId) return;
+        setIsTyping(true);
+        if (typingTimeoutRef.current) window.clearTimeout(typingTimeoutRef.current);
+        typingTimeoutRef.current = window.setTimeout(() => setIsTyping(false), 3000);
+      })
+      .subscribe();
+    typingChannelRef.current = channel;
+    return () => {
+      if (typingTimeoutRef.current) window.clearTimeout(typingTimeoutRef.current);
+      supabase.removeChannel(channel);
+      typingChannelRef.current = null;
+      setIsTyping(false);
+    };
+  }, [user, teamLeaderId]);
+
+  const broadcastTyping = () => {
+    if (!user || !typingChannelRef.current) return;
+    const now = Date.now();
+    if (now - typingSentAtRef.current < 1200) return;
+    typingSentAtRef.current = now;
+    void typingChannelRef.current.send({
+      type: "broadcast",
+      event: "typing",
+      payload: { userId: user.id },
+    });
+  };
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -228,6 +304,13 @@ function ChatPage() {
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-5 py-4 space-y-1">
+        {hasMore && messages.length > 0 && (
+          <div className="flex justify-center pb-2">
+            <Button size="sm" variant="ghost" className="h-7 text-[11px]" disabled={loadingOlder} onClick={() => void loadOlder()}>
+              {loadingOlder ? "Lädt…" : "Ältere Nachrichten laden"}
+            </Button>
+          </div>
+        )}
         {messages.length === 0 && !isTyping && (
           <div className="text-center py-12 px-6">
             <div className="h-20 w-20 rounded-full bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center mx-auto mb-4 shadow-lg shadow-primary/10 ring-4 ring-primary/5 overflow-hidden">
@@ -370,7 +453,7 @@ function ChatPage() {
           <EmojiPicker onSelect={(e) => setNewMessage((m) => m + e)} />
           <Textarea
             value={newMessage}
-            onChange={(e) => setNewMessage(e.target.value)}
+            onChange={(e) => { setNewMessage(e.target.value); broadcastTyping(); }}
             onKeyDown={handleKeyDown}
             placeholder="Nachricht schreiben… (Shift + Enter = neue Zeile)"
             rows={3}
