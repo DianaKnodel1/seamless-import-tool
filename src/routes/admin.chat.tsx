@@ -72,6 +72,16 @@ interface ChatMessage {
   attachment_type?: string | null;
 }
 
+function mergeChatMessages(current: ChatMessage[], incoming: ChatMessage[]) {
+  const byId = new Map(current.map((message) => [message.id, message]));
+  for (const message of incoming) {
+    if (!isInternalAdminNote(message.message)) byId.set(message.id, message);
+  }
+  return Array.from(byId.values()).sort(
+    (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+  );
+}
+
 function AdminChatPage() {
   const { user } = useAuth();
   const onlineUsers = useOnlineUsers();
@@ -107,6 +117,8 @@ function AdminChatPage() {
   const typingTimeoutRef = useRef<number | null>(null);
   const lastTypingSentRef = useRef(0);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const selectedUserIdRef = useRef<string | null>(null);
+  const conversationsRef = useRef<Conversation[]>([]);
   // Verlauf: neueste Seite zuerst, ältere auf Wunsch nachladen.
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
@@ -139,6 +151,9 @@ function AdminChatPage() {
     if (!user) return;
     loadConversations();
   }, [user]);
+
+  useEffect(() => { selectedUserIdRef.current = selectedUserId; }, [selectedUserId]);
+  useEffect(() => { conversationsRef.current = conversations; }, [conversations]);
 
   const loadConversations = async () => {
     const [profilesRes, convsRes, aggRes, msgsRes, tenantsRes, rolesRes] = await Promise.all([
@@ -495,22 +510,40 @@ function AdminChatPage() {
 
   const sendMessage = async () => {
     if ((!newMessage.trim() && !pendingAttachment) || !selectedUserId || !user) return;
+    const text = newMessage.trim();
+    const attachment = pendingAttachment;
+    const recipientId = selectedUserId;
     setSending(true);
     // Immer mit dem echten Admin-Konto senden – der Teamleiter-Anzeigename
     // kommt aus den Mandanten-Einstellungen, nicht aus einer fremden sender_id.
-    await supabase.from("chat_messages").insert({
+    const { data: inserted, error } = await supabase.from("chat_messages").insert({
       sender_id: user.id,
-      receiver_id: selectedUserId,
-      message: newMessage.trim() || (pendingAttachment ? `📎 ${pendingAttachment.name}` : ""),
-      attachment_url: pendingAttachment?.url ?? null,
-      attachment_name: pendingAttachment?.name ?? null,
-      attachment_type: pendingAttachment?.type ?? null,
-    } as any);
+      receiver_id: recipientId,
+      message: text || (attachment ? `📎 ${attachment.name}` : ""),
+      attachment_url: attachment?.url ?? null,
+      attachment_name: attachment?.name ?? null,
+      attachment_type: attachment?.type ?? null,
+    } as any).select("*").single();
+    if (error || !inserted) {
+      toast({
+        title: "Nachricht nicht gesendet",
+        description: error?.message ?? "Bitte versuche es erneut.",
+        variant: "destructive",
+      });
+      setSending(false);
+      return;
+    }
+    setMessages((prev) => mergeChatMessages(prev, [inserted as ChatMessage]));
+    setConversations((prev) => prev.map((conversation) =>
+      conversation.user_id === recipientId
+        ? { ...conversation, lastMessage: inserted.message, lastAt: inserted.created_at, lastFromEmployeeAt: null }
+        : conversation
+    ));
     // Still lernen: Abweichung zwischen Vorschlag und tatsächlich Gesendetem merken.
     if (lastSuggestionRef.current) {
       const suggestion = lastSuggestionRef.current;
       lastSuggestionRef.current = "";
-      void logCorrectionFn({ data: { targetUserId: selectedUserId, suggestion, finalText: newMessage.trim() } }).catch(() => {});
+      void logCorrectionFn({ data: { targetUserId: recipientId, suggestion, finalText: text } }).catch(() => {});
     }
     setNewMessage("");
     broadcastTyping("");
@@ -523,6 +556,19 @@ function AdminChatPage() {
   // Realtime
   useEffect(() => {
     if (!user) return;
+    const syncActiveConversation = async () => {
+      const activeUserId = selectedUserIdRef.current;
+      if (!activeUserId) return;
+      const { data, error } = await supabase
+        .from("chat_messages")
+        .select("*")
+        .or(`sender_id.eq.${activeUserId},receiver_id.eq.${activeUserId}`)
+        .order("created_at", { ascending: false })
+        .limit(HISTORY_PAGE_SIZE);
+      if (!error && data) {
+        setMessages((prev) => mergeChatMessages(prev, (data as ChatMessage[]).slice().reverse()));
+      }
+    };
     const channel = supabase
       .channel("admin-chat-unified")
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "chat_messages" }, async (payload) => {
@@ -532,9 +578,10 @@ function AdminChatPage() {
         if (!partner || adminIds.has(partner)) return;
 
         // Nachricht zum offenen Chat hinzufügen
-        if (selectedUserId && partner === selectedUserId) {
-          setMessages((prev) => prev.some(m => m.id === msg.id) ? prev : [...prev, msg]);
-          if (msg.sender_id === selectedUserId) {
+        const activeUserId = selectedUserIdRef.current;
+        if (activeUserId && partner === activeUserId) {
+          setMessages((prev) => mergeChatMessages(prev, [msg]));
+          if (msg.sender_id === activeUserId) {
             await supabase.from("chat_messages").update({ read: true } as any).eq("id", msg.id);
           }
         }
@@ -547,7 +594,7 @@ function AdminChatPage() {
             if (existing) {
               return prev.map((c) =>
                 c.user_id === partnerId
-                  ? { ...c, unread: c.user_id === selectedUserId ? 0 : c.unread + 1, lastMessage: msg.message, lastAt: msg.created_at, lastFromEmployeeAt: msg.created_at }
+                  ? { ...c, unread: c.user_id === activeUserId ? 0 : c.unread + 1, lastMessage: msg.message, lastAt: msg.created_at, lastFromEmployeeAt: msg.created_at }
                   : c
               );
             }
@@ -555,8 +602,9 @@ function AdminChatPage() {
           });
 
           // Neuer Mitarbeiter-Chat: Profil + Conversation laden und einfügen
-          const exists = conversations.some(c => c.user_id === partnerId);
-          let partnerName = exists ? (conversations.find(c => c.user_id === partnerId)?.full_name ?? "Mitarbeiter") : "Mitarbeiter";
+          const currentConversations = conversationsRef.current;
+          const exists = currentConversations.some(c => c.user_id === partnerId);
+          let partnerName = exists ? (currentConversations.find(c => c.user_id === partnerId)?.full_name ?? "Mitarbeiter") : "Mitarbeiter";
           if (!exists) {
             const { data: prof } = await supabase
               .from("profiles").select("user_id, full_name").eq("user_id", partnerId).maybeSingle();
@@ -577,7 +625,7 @@ function AdminChatPage() {
           }
 
           // Browser-Notification + Ping (nur wenn nicht der gerade offene Chat)
-          if (partnerId !== selectedUserId) {
+          if (partnerId !== activeUserId) {
             notifyChat({ body: msg.message, senderName: partnerName });
           }
         } else {
@@ -595,9 +643,23 @@ function AdminChatPage() {
           c.user_id === conv.user_id ? { ...c, status: conv.status, escalated_at: conv.escalated_at } : c
         ));
       })
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, [user, selectedUserId, conversations]);
+      .subscribe((status) => {
+        if (status === "SUBSCRIBED") void syncActiveConversation();
+        if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+          console.error(`[Chat Realtime] Admin-Verbindung: ${status}`);
+        }
+      });
+    const syncWhenVisible = () => {
+      if (document.visibilityState === "visible") void syncActiveConversation();
+    };
+    document.addEventListener("visibilitychange", syncWhenVisible);
+    window.addEventListener("online", syncWhenVisible);
+    return () => {
+      document.removeEventListener("visibilitychange", syncWhenVisible);
+      window.removeEventListener("online", syncWhenVisible);
+      supabase.removeChannel(channel);
+    };
+  }, [user, notifyChat]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });

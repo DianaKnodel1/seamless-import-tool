@@ -34,6 +34,16 @@ interface ChatMessage {
   is_system?: boolean | null;
 }
 
+function mergeChatMessages(current: ChatMessage[], incoming: ChatMessage[]) {
+  const byId = new Map(current.map((message) => [message.id, message]));
+  for (const message of incoming) {
+    if (!isInternalAdminNote(message)) byId.set(message.id, message);
+  }
+  return Array.from(byId.values()).sort(
+    (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+  );
+}
+
 const PAGE_SIZE = 200;
 
 // Rückfall für Altdaten ohne gesetztes is_system-Feld. "Hallo"/"Willkommen"
@@ -159,15 +169,26 @@ function ChatPage() {
 
   useEffect(() => {
     if (!user) return;
+    const syncLatest = async () => {
+      const { data, error } = await supabase
+        .from("chat_messages")
+        .select("*")
+        .or(`sender_id.eq.${user.id},receiver_id.eq.${user.id}`)
+        .order("created_at", { ascending: false })
+        .limit(PAGE_SIZE);
+      if (!error && data) {
+        setMessages((prev) => mergeChatMessages(prev, (data as ChatMessage[]).slice().reverse()));
+      }
+    };
     const channel = supabase
-      .channel("chat-realtime")
+      .channel(`employee-chat-${user.id}`)
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "chat_messages" }, (payload) => {
         const msg = payload.new as ChatMessage;
         if (msg.sender_id === user.id || msg.receiver_id === user.id) {
           // Interne Admin-/KI-Eskalations-Nachrichten im Mitarbeiter-Chat ausblenden
           if (isInternalAdminNote(msg)) return;
           if (msg.receiver_id === user.id && !teamLeaderId) setTeamLeaderId(msg.sender_id);
-          setMessages((prev) => prev.some((m) => m.id === msg.id) ? prev : [...prev, msg]);
+          setMessages((prev) => mergeChatMessages(prev, [msg]));
           // Chat ist offen → eingehende Nachricht sofort als gelesen markieren,
           // sonst bleibt der Ungelesen-Zähler in der Admin-Ansicht stehen.
           if (msg.receiver_id === user.id && !msg.read) {
@@ -175,9 +196,23 @@ function ChatPage() {
           }
         }
       })
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, [user, teamLeaderId]);
+      .subscribe((status) => {
+        if (status === "SUBSCRIBED") void syncLatest();
+        if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+          console.error(`[Chat Realtime] Mitarbeiter-Verbindung: ${status}`);
+        }
+      });
+    const syncWhenVisible = () => {
+      if (document.visibilityState === "visible") void syncLatest();
+    };
+    document.addEventListener("visibilitychange", syncWhenVisible);
+    window.addEventListener("online", syncWhenVisible);
+    return () => {
+      document.removeEventListener("visibilitychange", syncWhenVisible);
+      window.removeEventListener("online", syncWhenVisible);
+      supabase.removeChannel(channel);
+    };
+  }, [user]);
 
   // Tipp-Indikator pro Gesprächspaar (gleicher Kanalname wie in der Admin-Ansicht).
   useEffect(() => {
@@ -238,16 +273,23 @@ function ChatPage() {
 
   const sendMessage = async () => {
     if ((!newMessage.trim() && !pendingAttachment) || !teamLeaderId || !user) return;
+    const text = newMessage.trim();
+    const attachment = pendingAttachment;
     setSending(true);
-    const { error } = await supabase.from("chat_messages").insert({
+    const { data: inserted, error } = await supabase.from("chat_messages").insert({
       sender_id: user.id,
       receiver_id: teamLeaderId,
-      message: newMessage.trim() || (pendingAttachment ? `📎 ${pendingAttachment.name}` : ""),
-      attachment_url: pendingAttachment?.url ?? null,
-      attachment_name: pendingAttachment?.name ?? null,
-      attachment_type: pendingAttachment?.type ?? null,
-    } as any);
-    if (error) toast({ title: "Fehler", description: error.message, variant: "destructive" });
+      message: text || (attachment ? `📎 ${attachment.name}` : ""),
+      attachment_url: attachment?.url ?? null,
+      attachment_name: attachment?.name ?? null,
+      attachment_type: attachment?.type ?? null,
+    } as any).select("*").single();
+    if (error || !inserted) {
+      toast({ title: "Nachricht nicht gesendet", description: error?.message ?? "Bitte versuche es erneut.", variant: "destructive" });
+      setSending(false);
+      return;
+    }
+    setMessages((prev) => mergeChatMessages(prev, [inserted as ChatMessage]));
     setNewMessage("");
     broadcastTyping("");
     setPendingAttachment(null);
