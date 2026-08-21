@@ -16,7 +16,11 @@ const SCRIPT = String.raw`(function () {
   if (window.__botRecorder) { window.__botRecorder.stop(); return; }
 
   var buffer = [];
+  var all = [];
   var sent = 0;
+  var uploadOk = 0;
+  var uploadFail = 0;
+
 
   function label(el) {
     var t = (el.getAttribute("aria-label") || "").trim();
