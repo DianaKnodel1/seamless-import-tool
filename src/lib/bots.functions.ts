@@ -14,14 +14,24 @@ async function requireAdmin(ctx: { supabase: any; userId: string }) {
 
 /** Ein Schritt der Bot-Ablaufsteuerung. */
 const StepSchema = z.object({
-  action: z.enum(["goto", "fill", "click", "select", "wait", "screenshot", "advance", "extract", "handoff"]),
+  action: z.enum([
+    "goto", "fill", "click", "select", "wait", "wait_for",
+    "screenshot", "advance", "extract", "prompt", "handoff",
+  ]),
   selector: z.string().max(400).optional(),
   value: z.string().max(1000).optional(),
   pattern: z.string().max(1000).optional(),
   label: z.string().max(160).optional(),
   optional: z.boolean().optional(),
   timeout: z.number().int().min(500).max(120000).optional(),
+  /** prompt: Name der Variablen, die der Admin liefert (z. B. verify_url). */
+  var_name: z.string().max(40).regex(/^[a-z0-9_]*$/).optional(),
+  /** wait_for: URL-Muster (Glob, z. B. https://bank.de/antrag*). */
+  url_pattern: z.string().max(500).optional(),
+  /** wait_for: Text, der auf der Seite erscheinen muss. */
+  text_pattern: z.string().max(300).optional(),
 });
+
 
 export type BotStep = z.infer<typeof StepSchema>;
 
