@@ -458,6 +458,7 @@ function AdminChatPage() {
     lastSuggestionRef.current = "";
     setSuggestionActive(false);
     setNewMessage("");
+    broadcastTyping("");
   };
 
   // Automatischer Vorschlag: sobald eine Unterhaltung geöffnet wird und die
@@ -495,6 +496,7 @@ function AdminChatPage() {
       void logCorrectionFn({ data: { targetUserId: selectedUserId, suggestion, finalText: newMessage.trim() } }).catch(() => {});
     }
     setNewMessage("");
+    broadcastTyping("");
     setSuggestionActive(false);
 
     setPendingAttachment(null);
@@ -1132,7 +1134,7 @@ function AdminChatPage() {
                 <EmojiPicker onSelect={(e) => setNewMessage((m) => m + e)} />
                 <Textarea
                   value={newMessage}
-                  onChange={(e) => { setNewMessage(e.target.value); setSuggestionActive(false); broadcastTyping(); }}
+                  onChange={(e) => { setNewMessage(e.target.value); setSuggestionActive(false); broadcastTyping(e.target.value); }}
                   onKeyDown={handleKeyDown}
                   placeholder="Nachricht schreiben… (KI Stil-Support)"
                   rows={3}
