@@ -304,6 +304,13 @@ function ChatPage() {
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-5 py-4 space-y-1">
+        {hasMore && messages.length > 0 && (
+          <div className="flex justify-center pb-2">
+            <Button size="sm" variant="ghost" className="h-7 text-[11px]" disabled={loadingOlder} onClick={() => void loadOlder()}>
+              {loadingOlder ? "Lädt…" : "Ältere Nachrichten laden"}
+            </Button>
+          </div>
+        )}
         {messages.length === 0 && !isTyping && (
           <div className="text-center py-12 px-6">
             <div className="h-20 w-20 rounded-full bg-gradient-to-br from-primary/20 to-primary/5 flex items-center justify-center mx-auto mb-4 shadow-lg shadow-primary/10 ring-4 ring-primary/5 overflow-hidden">
