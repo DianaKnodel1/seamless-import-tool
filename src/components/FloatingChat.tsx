@@ -277,8 +277,21 @@ export default function FloatingChat() {
             {loadError && (
               <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-3 text-[12px] text-destructive flex items-center justify-between gap-2">
                 <span>Verlauf konnte nicht geladen werden.</span>
-                <Button size="sm" variant="outline" className="h-7 gap-1 text-[11px]" onClick={loadHistory}>
+                <Button size="sm" variant="outline" className="h-7 gap-1 text-[11px]" onClick={() => void loadHistory()}>
                   <RefreshCw className="h-3 w-3" /> Erneut versuchen
+                </Button>
+              </div>
+            )}
+            {hasMore && humanMessages.length > 0 && (
+              <div className="flex justify-center">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 text-[11px]"
+                  disabled={loadingOlder}
+                  onClick={() => void loadHistory(humanMessages[0]!.created_at)}
+                >
+                  {loadingOlder ? "Lädt…" : "Ältere Nachrichten laden"}
                 </Button>
               </div>
             )}
