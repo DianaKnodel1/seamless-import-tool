@@ -43,3 +43,6 @@ Das Chat-Fenster hoert auf einen globalen Kanal.
 Sobald irgendein anderer Mitarbeiter tippt, sehen alle den Hinweis.
 Dein echtes Tippen erreicht sie dagegen nie: die Admin-Ansicht sendet auf
 einem Kanal pro Unterhaltung, den das Chat-Fenster nicht abonniert.
+Fix: beide Seiten nutzen denselben Kanal pro Gespraechspaar, der Empfaenger
+prueft die Absender-ID, und der Hinweis erlischt nach 3 Sekunden ohne neues
+Signal.
