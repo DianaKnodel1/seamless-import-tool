@@ -595,8 +595,12 @@ function AdminChatPage() {
     channel
       .on("broadcast", { event: "typing" }, (payload) => {
         if (payload.payload?.userId === selectedUserId) {
-          setPartnerTyping(true);
           if (typingTimeoutRef.current) window.clearTimeout(typingTimeoutRef.current);
+          if (payload.payload?.typing === false) {
+            setPartnerTyping(false);
+            return;
+          }
+          setPartnerTyping(true);
           typingTimeoutRef.current = window.setTimeout(() => setPartnerTyping(false), 3000);
         }
       })
@@ -610,15 +614,23 @@ function AdminChatPage() {
     };
   }, [user, selectedUserId]);
 
-  const broadcastTyping = () => {
+  // Explizites Stop-Signal, sobald das Feld leer ist oder abgesendet wurde.
+  const broadcastTyping = (text: string) => {
     if (!typingChannelRef.current || !user) return;
+    if (text.trim().length === 0) {
+      lastTypingSentRef.current = 0;
+      typingChannelRef.current.send({
+        type: "broadcast", event: "typing", payload: { userId: user.id, typing: false },
+      });
+      return;
+    }
     const now = Date.now();
     if (now - lastTypingSentRef.current < 1500) return;
     lastTypingSentRef.current = now;
     typingChannelRef.current.send({
       type: "broadcast",
       event: "typing",
-      payload: { userId: user.id },
+      payload: { userId: user.id, typing: true },
     });
   };
 
