@@ -156,8 +156,12 @@ export default function FloatingChat() {
     channel
       .on("broadcast", { event: "typing" }, (payload) => {
         if (payload.payload?.userId !== recipientId) return;
-        setLeaderTyping(true);
         if (typingTimeoutRef.current) window.clearTimeout(typingTimeoutRef.current);
+        if (payload.payload?.typing === false) {
+          setLeaderTyping(false);
+          return;
+        }
+        setLeaderTyping(true);
         typingTimeoutRef.current = window.setTimeout(() => setLeaderTyping(false), 3000);
       })
       .subscribe();
