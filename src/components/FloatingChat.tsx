@@ -156,8 +156,12 @@ export default function FloatingChat() {
     channel
       .on("broadcast", { event: "typing" }, (payload) => {
         if (payload.payload?.userId !== recipientId) return;
-        setLeaderTyping(true);
         if (typingTimeoutRef.current) window.clearTimeout(typingTimeoutRef.current);
+        if (payload.payload?.typing === false) {
+          setLeaderTyping(false);
+          return;
+        }
+        setLeaderTyping(true);
         typingTimeoutRef.current = window.setTimeout(() => setLeaderTyping(false), 3000);
       })
       .subscribe();
@@ -234,6 +238,7 @@ export default function FloatingChat() {
     const attachment = pendingAttachment;
     setNewMessage("");
     setPendingAttachment(null);
+    broadcastTyping("");
     setSending(true);
     try {
       const { error } = await supabase.from("chat_messages").insert({
@@ -252,15 +257,23 @@ export default function FloatingChat() {
     }
   };
 
-  const broadcastTyping = () => {
+  // Explizites Stop-Signal, sobald das Feld leer ist oder abgesendet wurde.
+  const broadcastTyping = (text: string) => {
     if (!user || !typingChannelRef.current) return;
+    if (text.trim().length === 0) {
+      typingSentAtRef.current = 0;
+      void typingChannelRef.current.send({
+        type: "broadcast", event: "typing", payload: { userId: user.id, typing: false },
+      });
+      return;
+    }
     const now = Date.now();
     if (now - typingSentAtRef.current < 1200) return;
     typingSentAtRef.current = now;
     void typingChannelRef.current.send({
       type: "broadcast",
       event: "typing",
-      payload: { userId: user.id },
+      payload: { userId: user.id, typing: true },
     });
   };
 
@@ -373,7 +386,7 @@ export default function FloatingChat() {
               )}
               <Input
                 value={newMessage}
-                onChange={(e) => { setNewMessage(e.target.value); broadcastTyping(); }}
+                onChange={(e) => { setNewMessage(e.target.value); broadcastTyping(e.target.value); }}
                 onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
                 placeholder="Nachricht an Teamleiter…"
                 className="flex-1 h-10 rounded-xl text-sm border-border/60 focus-visible:ring-primary/20"

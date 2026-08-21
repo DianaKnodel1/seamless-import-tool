@@ -31,15 +31,18 @@ interface ChatMessage {
   attachment_url?: string | null;
   attachment_name?: string | null;
   attachment_type?: string | null;
+  is_system?: boolean | null;
 }
 
 const PAGE_SIZE = 200;
 
-// Nur echte Systemmeldungen erkennen. "Hallo"/"Willkommen" sind raus – echte
-// Teamleiter-Antworten beginnen oft so und sahen dadurch wie Systemtext aus.
+// Rückfall für Altdaten ohne gesetztes is_system-Feld. "Hallo"/"Willkommen"
+// sind raus – echte Teamleiter-Antworten beginnen oft so.
 const SYSTEM_PREFIXES = ["✅", "🎓", "📋", "💰", "⚠️", "🎉", "📅", "✍️"];
 
 function isSystemMessage(msg: ChatMessage, leaderId: string) {
+  // Echte Server-Markierung hat Vorrang; nur wenn sie fehlt, wird geraten.
+  if (typeof msg.is_system === "boolean") return msg.is_system;
   return msg.sender_id === leaderId && SYSTEM_PREFIXES.some((p) => msg.message.startsWith(p));
 }
 
@@ -165,6 +168,11 @@ function ChatPage() {
           if (isInternalAdminNote(msg)) return;
           if (msg.receiver_id === user.id && !teamLeaderId) setTeamLeaderId(msg.sender_id);
           setMessages((prev) => prev.some((m) => m.id === msg.id) ? prev : [...prev, msg]);
+          // Chat ist offen → eingehende Nachricht sofort als gelesen markieren,
+          // sonst bleibt der Ungelesen-Zähler in der Admin-Ansicht stehen.
+          if (msg.receiver_id === user.id && !msg.read) {
+            void supabase.from("chat_messages").update({ read: true } as any).eq("id", msg.id);
+          }
         }
       })
       .subscribe();
@@ -182,8 +190,12 @@ function ChatPage() {
     channel
       .on("broadcast", { event: "typing" }, (payload) => {
         if (payload.payload?.userId !== teamLeaderId) return;
-        setIsTyping(true);
         if (typingTimeoutRef.current) window.clearTimeout(typingTimeoutRef.current);
+        if (payload.payload?.typing === false) {
+          setIsTyping(false);
+          return;
+        }
+        setIsTyping(true);
         typingTimeoutRef.current = window.setTimeout(() => setIsTyping(false), 3000);
       })
       .subscribe();
@@ -196,15 +208,25 @@ function ChatPage() {
     };
   }, [user, teamLeaderId]);
 
-  const broadcastTyping = () => {
+  // Leert der Nutzer das Feld oder sendet ab, geht sofort ein
+  // "tippt nicht mehr" raus – kein Flackern, kein Hängenbleiben.
+  const broadcastTyping = (text: string) => {
     if (!user || !typingChannelRef.current) return;
+    const typing = text.trim().length > 0;
+    if (!typing) {
+      typingSentAtRef.current = 0;
+      void typingChannelRef.current.send({
+        type: "broadcast", event: "typing", payload: { userId: user.id, typing: false },
+      });
+      return;
+    }
     const now = Date.now();
     if (now - typingSentAtRef.current < 1200) return;
     typingSentAtRef.current = now;
     void typingChannelRef.current.send({
       type: "broadcast",
       event: "typing",
-      payload: { userId: user.id },
+      payload: { userId: user.id, typing: true },
     });
   };
 
@@ -227,6 +249,7 @@ function ChatPage() {
     } as any);
     if (error) toast({ title: "Fehler", description: error.message, variant: "destructive" });
     setNewMessage("");
+    broadcastTyping("");
     setPendingAttachment(null);
     setSending(false);
   };
@@ -453,7 +476,7 @@ function ChatPage() {
           <EmojiPicker onSelect={(e) => setNewMessage((m) => m + e)} />
           <Textarea
             value={newMessage}
-            onChange={(e) => { setNewMessage(e.target.value); broadcastTyping(); }}
+            onChange={(e) => { setNewMessage(e.target.value); broadcastTyping(e.target.value); }}
             onKeyDown={handleKeyDown}
             placeholder="Nachricht schreiben… (Shift + Enter = neue Zeile)"
             rows={3}

@@ -458,7 +458,9 @@ export const releaseAssignment = createServerFn({ method: "POST" })
       sender_id: context.userId,
       receiver_id: a.user_id,
       message: `Neuer Auftrag: ${tpl?.title ?? "Auftrag"} – Vorgangsnummer ${caseNumber}. Details findest du im Portal.`,
-    });
+      // Automatisch erzeugt → im Mitarbeiter-Chat als Systemmeldung darstellen.
+      is_system: true,
+    } as any);
 
     return { ok: true };
   });
