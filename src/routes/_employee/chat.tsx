@@ -86,17 +86,21 @@ function ChatPage() {
         .from("profiles").select("team_leader_id").eq("user_id", user!.id).maybeSingle();
       const leaderId = profile?.team_leader_id ?? null;
 
-      // Kompletter Verlauf des Mitarbeiters – unabhängig davon, welche
-      // Teamleiter-ID hinterlegt ist (ein Admin-Konto, viele Anzeigenamen).
+      // NEUESTE Nachrichten laden (absteigend abfragen, danach chronologisch
+      // sortieren). Vorher wurden die 200 ältesten geladen – neue Nachrichten
+      // fehlten dadurch nach jedem Neuladen.
       const { data: msgs, error } = await supabase
         .from("chat_messages")
         .select("*")
         .or(`sender_id.eq.${user!.id},receiver_id.eq.${user!.id}`)
-        .order("created_at", { ascending: true })
-        .limit(200);
+        .order("created_at", { ascending: false })
+        .limit(PAGE_SIZE);
       if (error) throw error;
 
-      const visible = ((msgs ?? []) as ChatMessage[]).filter((m) => !isInternalAdminNote(m));
+      setHasMore((msgs ?? []).length === PAGE_SIZE);
+      const visible = ((msgs ?? []) as ChatMessage[])
+        .filter((m) => !isInternalAdminNote(m))
+        .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
       setMessages(visible);
 
       // Empfänger: hinterlegter Teamleiter, sonst letzter Absender an mich.
@@ -113,6 +117,32 @@ function ChatPage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const loadOlder = async () => {
+    if (!user || messages.length === 0) return;
+    setLoadingOlder(true);
+    const { data, error } = await supabase
+      .from("chat_messages")
+      .select("*")
+      .or(`sender_id.eq.${user.id},receiver_id.eq.${user.id}`)
+      .lt("created_at", messages[0]!.created_at)
+      .order("created_at", { ascending: false })
+      .limit(PAGE_SIZE);
+    setLoadingOlder(false);
+    if (error) {
+      console.error("Ältere Nachrichten konnten nicht geladen werden:", error);
+      return;
+    }
+    setHasMore((data ?? []).length === PAGE_SIZE);
+    const older = ((data ?? []) as ChatMessage[]).filter((m) => !isInternalAdminNote(m));
+    setMessages((prev) => {
+      const map = new Map<string, ChatMessage>();
+      for (const m of [...older, ...prev]) map.set(m.id, m);
+      return Array.from(map.values()).sort(
+        (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+      );
+    });
   };
 
   useEffect(() => {
